@@ -22,7 +22,7 @@ export function randomToken(bytes = 32): string {
   return b64(data).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
-export async function hashPassword(password: string, iterations = 210_000): Promise<string> {
+export async function hashPassword(password: string, iterations = 100_000): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
   const derived = await crypto.subtle.deriveBits(
