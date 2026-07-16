@@ -1,0 +1,21 @@
+{
+  "name": "@eden/api",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config ../../wrangler.toml",
+    "deploy": "wrangler deploy --config ../../wrangler.toml",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "hono": "^4.12.30",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260716.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.111.0"
+  }
+}

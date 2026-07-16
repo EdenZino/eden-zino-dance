@@ -1,0 +1,28 @@
+name = "eden-dance-platform"
+main = "apps/api/src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "apps/web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "eden-dance-media"
+preview_bucket_name = "eden-dance-media-preview"
+
+[vars]
+PUBLIC_APP_URL = "https://dance.example.co.il"
+PAYMENT_PROVIDER = "mock"
+# Sandbox default. Replace with the live API base supplied by PayMe before production.
+PAYME_API_BASE = "https://sandbox.payme.io/api"
+PAYME_LANGUAGE = "he"
+# Leave empty to let the PayMe payment page show the methods enabled for the merchant.
+PAYME_PAYMENT_METHOD = ""
+EMAIL_FROM = "Eden Zino Dance <noreply@example.co.il>"
+TRANZILA_PAYMENT_BASE = "https://direct.tranzila.com"
+
+[triggers]
+crons = ["*/5 * * * *", "0 8 * * *"]

@@ -1,0 +1,11 @@
+node_modules
+.env
+.dev.vars
+.wrangler
+apps/web/dist
+coverage
+.DS_Store
+*.log
+*.tsbuildinfo
+apps/web/vite.config.js
+apps/web/vite.config.d.ts

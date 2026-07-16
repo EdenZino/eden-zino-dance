@@ -1,0 +1,408 @@
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { db } from '../lib/db';
+import { createSession, destroySession, requireAdmin, requireRole } from '../lib/auth';
+import { hashPassword, randomToken, verifyPassword } from '../lib/crypto';
+import type { AdminSession, Env } from '../types';
+
+type Vars = { admin: AdminSession };
+const admin = new Hono<{ Bindings: Env; Variables: Vars }>();
+
+admin.post('/bootstrap', async (c) => {
+  const input = z.object({ setupToken: z.string(), email: z.string().email(), password: z.string().min(12), displayName: z.string().min(2) }).parse(await c.req.json());
+  if (input.setupToken !== c.env.SETUP_TOKEN) return c.json({ error: 'INVALID_SETUP_TOKEN' }, 403);
+  const sql = db(c.env);
+  const count = await sql`select count(*)::int as count from admins`;
+  if (Number((count[0] as any).count) > 0) return c.json({ error: 'ALREADY_BOOTSTRAPPED' }, 409);
+  const passwordHash = await hashPassword(input.password);
+  const created = await sql`insert into admins(email,password_hash,display_name,role) values(lower(${input.email}),${passwordHash},${input.displayName},'OWNER') returning id,email,display_name,role`;
+  await createSession(c, String((created[0] as any).id));
+  return c.json({ admin: created[0] }, 201);
+});
+
+admin.post('/login', async (c) => {
+  const input = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(await c.req.json());
+  const sql = db(c.env);
+  const found = await sql`select id,email,password_hash,display_name,role,is_active from admins where lower(email)=lower(${input.email}) limit 1`;
+  const row = found[0] as any;
+  if (!row || !row.is_active || !(await verifyPassword(input.password, row.password_hash))) return c.json({ error: 'INVALID_CREDENTIALS' }, 401);
+  await sql`update admins set last_login_at=now() where id=${row.id}::uuid`;
+  await createSession(c, row.id);
+  return c.json({ admin: { id: row.id, email: row.email, displayName: row.display_name, role: row.role } });
+});
+
+admin.post('/logout', async (c) => {
+  await destroySession(c);
+  return c.json({ ok: true });
+});
+
+admin.use('/*', requireAdmin);
+
+admin.get('/me', (c) => c.json({ admin: c.get('admin') }));
+
+admin.get('/dashboard', async (c) => {
+  const sql = db(c.env);
+  const [stats, upcoming, recent, revenue] = await Promise.all([
+    sql`select
+      (select count(*) from workshops where status in ('PUBLISHED','FULL') and ends_at>now())::int as active_workshops,
+      (select count(*) from registrations where status in ('PAID','CHECKED_IN','PARTIALLY_REFUNDED'))::int as paid_registrations,
+      (select count(*) from waitlist_entries where status='WAITING')::int as waitlist_count,
+      (select count(*) from registrations where status='PAYMENT_FAILED')::int as failed_payments`,
+    sql`select w.id,w.public_code,w.title,w.starts_at,w.capacity,a.occupied,a.available,w.status from workshops w join workshop_availability a on a.id=w.id where w.ends_at>now() order by w.starts_at limit 8`,
+    sql`select r.id,r.registration_code,r.first_name,r.last_name,r.email,r.status,r.amount_agorot,r.created_at,w.title from registrations r join workshops w on w.id=r.workshop_id order by r.created_at desc limit 10`,
+    sql`select coalesce(sum(amount_agorot),0)::int as gross_agorot, count(*)::int as transactions from payments where status in ('SUCCEEDED','PARTIALLY_REFUNDED')`,
+  ]);
+  return c.json({ stats: stats[0], upcoming, recent, revenue: revenue[0] });
+});
+
+admin.get('/workshops', async (c) => {
+  const result = await db(c.env)`select w.*,a.occupied,a.available from workshops w join workshop_availability a on a.id=w.id order by w.starts_at desc`;
+  return c.json({ workshops: result });
+});
+
+const workshopSchema = z.object({
+  publicCode: z.string().min(4).max(20).optional(), slug: z.string().min(3).max(120), title: z.string().min(2),
+  shortDescription: z.string().default(''), fullDescription: z.string().default(''), imageUrl: z.string().default(''),
+  gallery: z.array(z.string()).default([]), locationName: z.string().default(''), locationAddress: z.string().default(''), mapUrl: z.string().default(''),
+  startsAt: z.string(), endsAt: z.string(), registrationOpensAt: z.string().nullable().optional(), registrationClosesAt: z.string().nullable().optional(),
+  capacity: z.number().int().positive(), minParticipants: z.number().int().positive().default(1), maxParticipantsPerOrder: z.number().int().min(1).max(10).default(1), maxRegistrationsPerPhone: z.number().int().min(1).max(50).default(2),
+  balanceDueDaysBefore: z.number().int().min(0).max(365).default(0), requiredPassCredits: z.number().int().min(1).max(20).default(1), isPrivate: z.boolean().default(false),
+  seriesId: z.string().uuid().nullable().optional(), recurrenceLabel: z.string().max(120).default(''),
+  priceAgorot: z.number().int().min(0), earlyBirdPriceAgorot: z.number().int().min(0).nullable().optional(), earlyBirdEndsAt: z.string().nullable().optional(),
+  depositAgorot: z.number().int().min(0).nullable().optional(), level: z.string().default(''), audience: z.string().default(''), minimumAge: z.number().int().min(0).nullable().optional(),
+  allowWaitlist: z.boolean().default(true), allowCoupons: z.boolean().default(true), allowTransfers: z.boolean().default(true),
+  status: z.enum(['DRAFT','PUBLISHED','FULL','CLOSED','CANCELLED','COMPLETED']).default('DRAFT'),
+  cancellationPolicyVersion: z.string().default('DRAFT-1'), termsVersion: z.string().default('DRAFT-1'), privacyVersion: z.string().default('DRAFT-1'),
+  instructorIds: z.array(z.string().uuid()).default([]), fields: z.array(z.object({ fieldKey: z.string(), fieldType: z.string(), label: z.string(), helpText: z.string().default(''), required: z.boolean().default(false), options: z.array(z.string()).default([]), displayOrder: z.number().int().default(0) })).default([]),
+});
+
+admin.post('/workshops', requireRole('OWNER','ADMIN'), async (c) => {
+  const body = workshopSchema.parse(await c.req.json());
+  const sql = db(c.env);
+  const code = body.publicCode || `EZ${randomToken(5).slice(0,6).toUpperCase()}`;
+  const actor = c.get('admin');
+  const inserted = await sql`insert into workshops(public_code,slug,title,short_description,full_description,image_url,gallery,location_name,location_address,map_url,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,min_participants,max_participants_per_order,price_agorot,early_bird_price_agorot,early_bird_ends_at,deposit_agorot,level,audience,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,cancellation_policy_version,terms_version,privacy_version,created_by,max_registrations_per_phone,balance_due_days_before,required_pass_credits,is_private,series_id,recurrence_label)
+    values(${code},${body.slug},${body.title},${body.shortDescription},${body.fullDescription},${body.imageUrl},${JSON.stringify(body.gallery)}::jsonb,${body.locationName},${body.locationAddress},${body.mapUrl},${body.startsAt}::timestamptz,${body.endsAt}::timestamptz,${body.registrationOpensAt ?? null}::timestamptz,${body.registrationClosesAt ?? null}::timestamptz,${body.capacity},${body.minParticipants},${body.maxParticipantsPerOrder},${body.priceAgorot},${body.earlyBirdPriceAgorot ?? null},${body.earlyBirdEndsAt ?? null}::timestamptz,${body.depositAgorot ?? null},${body.level},${body.audience},${body.minimumAge ?? null},${body.allowWaitlist},${body.allowCoupons},${body.allowTransfers},${body.status},${body.cancellationPolicyVersion},${body.termsVersion},${body.privacyVersion},${actor.adminId}::uuid,${body.maxRegistrationsPerPhone},${body.balanceDueDaysBefore},${body.requiredPassCredits},${body.isPrivate},${body.seriesId ?? null}::uuid,${body.recurrenceLabel}) returning *`;
+  const workshop = inserted[0] as any;
+  if (body.instructorIds.length) {
+    for (const instructorId of body.instructorIds) await sql`insert into workshop_instructors(workshop_id,instructor_id) values(${workshop.id}::uuid,${instructorId}::uuid) on conflict do nothing`;
+  } else {
+    await sql`insert into workshop_instructors(workshop_id,instructor_id) select ${workshop.id}::uuid,id from instructors where is_active=true order by created_at limit 1 on conflict do nothing`;
+  }
+  for (const field of body.fields) await sql`insert into workshop_fields(workshop_id,field_key,field_type,label,help_text,required,options,display_order) values(${workshop.id}::uuid,${field.fieldKey},${field.fieldType},${field.label},${field.helpText},${field.required},${JSON.stringify(field.options)}::jsonb,${field.displayOrder})`;
+  await sql`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value,ip_address) values(${actor.adminId}::uuid,'CREATE','WORKSHOP',${workshop.id},${JSON.stringify(workshop)}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
+  return c.json({ workshop }, 201);
+});
+
+admin.get('/workshops/:id', async (c) => {
+  const id = c.req.param('id');
+  const sql = db(c.env);
+  const rows = await sql`select * from workshops where id=${id}::uuid limit 1`;
+  if (!rows.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const [fields, instructors] = await Promise.all([
+    sql`select * from workshop_fields where workshop_id=${id}::uuid order by display_order`,
+    sql`select i.* from instructors i join workshop_instructors wi on wi.instructor_id=i.id where wi.workshop_id=${id}::uuid`,
+  ]);
+  return c.json({ workshop: rows[0], fields, instructors });
+});
+
+admin.patch('/workshops/:id', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id');
+  const body = workshopSchema.partial().parse(await c.req.json());
+  const sql = db(c.env);
+  const old = await sql`select * from workshops where id=${id}::uuid`;
+  if (!old.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const current = old[0] as any;
+  const merged: any = { ...current,
+    public_code: body.publicCode ?? current.public_code, slug: body.slug ?? current.slug, title: body.title ?? current.title,
+    short_description: body.shortDescription ?? current.short_description, full_description: body.fullDescription ?? current.full_description,
+    image_url: body.imageUrl ?? current.image_url, gallery: body.gallery ?? current.gallery, location_name: body.locationName ?? current.location_name,
+    location_address: body.locationAddress ?? current.location_address, map_url: body.mapUrl ?? current.map_url, starts_at: body.startsAt ?? current.starts_at,
+    ends_at: body.endsAt ?? current.ends_at, registration_opens_at: body.registrationOpensAt === undefined ? current.registration_opens_at : body.registrationOpensAt,
+    registration_closes_at: body.registrationClosesAt === undefined ? current.registration_closes_at : body.registrationClosesAt,
+    capacity: body.capacity ?? current.capacity, min_participants: body.minParticipants ?? current.min_participants,
+    max_participants_per_order: body.maxParticipantsPerOrder ?? current.max_participants_per_order, price_agorot: body.priceAgorot ?? current.price_agorot,
+    early_bird_price_agorot: body.earlyBirdPriceAgorot === undefined ? current.early_bird_price_agorot : body.earlyBirdPriceAgorot,
+    early_bird_ends_at: body.earlyBirdEndsAt === undefined ? current.early_bird_ends_at : body.earlyBirdEndsAt,
+    deposit_agorot: body.depositAgorot === undefined ? current.deposit_agorot : body.depositAgorot, level: body.level ?? current.level,
+    audience: body.audience ?? current.audience, minimum_age: body.minimumAge === undefined ? current.minimum_age : body.minimumAge,
+    allow_waitlist: body.allowWaitlist ?? current.allow_waitlist, allow_coupons: body.allowCoupons ?? current.allow_coupons,
+    allow_transfers: body.allowTransfers ?? current.allow_transfers, status: body.status ?? current.status,
+    cancellation_policy_version: body.cancellationPolicyVersion ?? current.cancellation_policy_version,
+    terms_version: body.termsVersion ?? current.terms_version, privacy_version: body.privacyVersion ?? current.privacy_version, max_registrations_per_phone: body.maxRegistrationsPerPhone ?? current.max_registrations_per_phone,
+    balance_due_days_before: body.balanceDueDaysBefore ?? current.balance_due_days_before, required_pass_credits: body.requiredPassCredits ?? current.required_pass_credits,
+    is_private: body.isPrivate ?? current.is_private, series_id: body.seriesId === undefined ? current.series_id : body.seriesId, recurrence_label: body.recurrenceLabel ?? current.recurrence_label,
+  };
+  const updated = await sql`update workshops set public_code=${merged.public_code},slug=${merged.slug},title=${merged.title},short_description=${merged.short_description},full_description=${merged.full_description},image_url=${merged.image_url},gallery=${JSON.stringify(merged.gallery)}::jsonb,location_name=${merged.location_name},location_address=${merged.location_address},map_url=${merged.map_url},starts_at=${merged.starts_at}::timestamptz,ends_at=${merged.ends_at}::timestamptz,registration_opens_at=${merged.registration_opens_at}::timestamptz,registration_closes_at=${merged.registration_closes_at}::timestamptz,capacity=${merged.capacity},min_participants=${merged.min_participants},max_participants_per_order=${merged.max_participants_per_order},price_agorot=${merged.price_agorot},early_bird_price_agorot=${merged.early_bird_price_agorot},early_bird_ends_at=${merged.early_bird_ends_at}::timestamptz,deposit_agorot=${merged.deposit_agorot},level=${merged.level},audience=${merged.audience},minimum_age=${merged.minimum_age},allow_waitlist=${merged.allow_waitlist},allow_coupons=${merged.allow_coupons},allow_transfers=${merged.allow_transfers},status=${merged.status},cancellation_policy_version=${merged.cancellation_policy_version},terms_version=${merged.terms_version},privacy_version=${merged.privacy_version},max_registrations_per_phone=${merged.max_registrations_per_phone},balance_due_days_before=${merged.balance_due_days_before},required_pass_credits=${merged.required_pass_credits},is_private=${merged.is_private},series_id=${merged.series_id}::uuid,recurrence_label=${merged.recurrence_label},updated_at=now() where id=${id}::uuid returning *`;
+  if (body.instructorIds) {
+    await sql`delete from workshop_instructors where workshop_id=${id}::uuid`;
+    for (const instructorId of body.instructorIds) await sql`insert into workshop_instructors(workshop_id,instructor_id) values(${id}::uuid,${instructorId}::uuid)`;
+  }
+  if (body.fields) {
+    await sql`delete from workshop_fields where workshop_id=${id}::uuid`;
+    for (const field of body.fields) await sql`insert into workshop_fields(workshop_id,field_key,field_type,label,help_text,required,options,display_order) values(${id}::uuid,${field.fieldKey},${field.fieldType},${field.label},${field.helpText},${field.required},${JSON.stringify(field.options)}::jsonb,${field.displayOrder})`;
+  }
+  const actor = c.get('admin');
+  await sql`insert into audit_logs(admin_id,action,entity_type,entity_id,old_value,new_value) values(${actor.adminId}::uuid,'UPDATE','WORKSHOP',${id},${JSON.stringify(current)}::jsonb,${JSON.stringify(updated[0])}::jsonb)`;
+  return c.json({ workshop: updated[0] });
+});
+
+admin.post('/workshops/:id/duplicate', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id');
+  const sql = db(c.env);
+  const source = await sql`select * from workshops where id=${id}::uuid`;
+  if (!source.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const w = source[0] as any;
+  const code = `EZ${randomToken(5).slice(0,6).toUpperCase()}`;
+  const copy = await sql`insert into workshops(public_code,slug,title,short_description,full_description,image_url,gallery,location_name,location_address,map_url,starts_at,ends_at,capacity,min_participants,max_participants_per_order,price_agorot,early_bird_price_agorot,deposit_agorot,level,audience,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,cancellation_policy_version,terms_version,privacy_version,created_by)
+    values(${code},${`${w.slug}-copy-${Date.now()}`},${`${w.title} — עותק`},${w.short_description},${w.full_description},${w.image_url},${JSON.stringify(w.gallery)}::jsonb,${w.location_name},${w.location_address},${w.map_url},${w.starts_at}::timestamptz,${w.ends_at}::timestamptz,${w.capacity},${w.min_participants},${w.max_participants_per_order},${w.price_agorot},${w.early_bird_price_agorot},${w.deposit_agorot},${w.level},${w.audience},${w.minimum_age},${w.allow_waitlist},${w.allow_coupons},${w.allow_transfers},'DRAFT',${w.cancellation_policy_version},${w.terms_version},${w.privacy_version},${c.get('admin').adminId}::uuid) returning *`;
+  return c.json({ workshop: copy[0] }, 201);
+});
+
+admin.get('/registrations', async (c) => {
+  const status = c.req.query('status'); const workshopId = c.req.query('workshopId'); const search = c.req.query('search');
+  const result = await db(c.env)`select r.*,w.title,w.public_code,w.starts_at from registrations r join workshops w on w.id=r.workshop_id
+    where (${status ?? null}::text is null or r.status=${status ?? null})
+      and (${workshopId ?? null}::uuid is null or r.workshop_id=${workshopId ?? null}::uuid)
+      and (${search ?? null}::text is null or concat_ws(' ',r.first_name,r.last_name,r.email,r.phone,r.registration_code) ilike ${search ? `%${search}%` : null})
+    order by r.created_at desc limit 1000`;
+  return c.json({ registrations: result });
+});
+
+admin.post('/registrations/:id/checkin', requireRole('OWNER','ADMIN','INSTRUCTOR'), async (c) => {
+  const id = c.req.param('id'); const actor = c.get('admin'); const sql = db(c.env);
+  await sql`insert into checkins(registration_id,checked_in_by) values(${id}::uuid,${actor.adminId}::uuid) on conflict(registration_id) do update set checked_in_at=now(),checked_in_by=excluded.checked_in_by`;
+  await sql`update registrations set status='CHECKED_IN',updated_at=now() where id=${id}::uuid and status in ('PAID','PARTIALLY_REFUNDED')`;
+  return c.json({ ok: true });
+});
+
+admin.post('/registrations/:id/cancel', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id'); const input = z.object({ reason: z.string().min(2) }).parse(await c.req.json()); const actor = c.get('admin');
+  await db(c.env)`update registrations set status='CANCELLED',notes=concat(notes,E'\nביטול: ',${input.reason}),updated_at=now() where id=${id}::uuid`;
+  await db(c.env)`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value) values(${actor.adminId}::uuid,'CANCEL','REGISTRATION',${id},${JSON.stringify(input)}::jsonb)`;
+  return c.json({ ok: true });
+});
+
+admin.post('/registrations/:id/refund', requireRole('OWNER'), async (c) => {
+  const id = c.req.param('id'); const input = z.object({ amountAgorot: z.number().int().positive(), reason: z.string().min(2) }).parse(await c.req.json()); const actor = c.get('admin'); const sql = db(c.env);
+  const paid = await sql`select amount_paid_agorot from registrations where id=${id}::uuid`;
+  if (!paid.length || input.amountAgorot > Number((paid[0] as any).amount_paid_agorot)) return c.json({ error: 'INVALID_REFUND_AMOUNT' }, 400);
+  const refund = await sql`insert into refunds(registration_id,amount_agorot,reason,status,requested_by) values(${id}::uuid,${input.amountAgorot},${input.reason},'MANUAL_ACTION_REQUIRED',${actor.adminId}::uuid) returning *`;
+  await sql`update registrations set status='REFUND_PENDING',updated_at=now() where id=${id}::uuid`;
+  return c.json({ refund: refund[0], note: 'Complete the refund in the payment provider and mark it completed.' }, 201);
+});
+
+admin.post('/refunds/:id/complete', requireRole('OWNER'), async (c) => {
+  const id = c.req.param('id'); const input = z.object({ providerRefundId: z.string().optional() }).parse(await c.req.json()); const sql = db(c.env);
+  const refs = await sql`update refunds set status='SUCCEEDED',provider_refund_id=${input.providerRefundId ?? null},completed_at=now() where id=${id}::uuid returning registration_id,amount_agorot`;
+  if (!refs.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const ref = refs[0] as any;
+  const sums = await sql`select r.amount_paid_agorot,coalesce(sum(f.amount_agorot) filter(where f.status='SUCCEEDED'),0)::int refunded from registrations r left join refunds f on f.registration_id=r.id where r.id=${ref.registration_id}::uuid group by r.id`;
+  const s = sums[0] as any; const status = Number(s.refunded) >= Number(s.amount_paid_agorot) ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+  await sql`update registrations set status=${status},updated_at=now() where id=${ref.registration_id}::uuid`;
+  return c.json({ ok: true, status });
+});
+
+admin.post('/registrations/:id/transfer', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id'); const input = z.object({ targetWorkshopId: z.string().uuid() }).parse(await c.req.json()); const sql = db(c.env);
+  const reg = await sql`select * from registrations where id=${id}::uuid for update`;
+  if (!reg.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const availability = await sql`select w.id,w.allow_transfers,a.available from workshops w join workshop_availability a on a.id=w.id where w.id=${input.targetWorkshopId}::uuid`;
+  const target = availability[0] as any;
+  if (!target || !target.allow_transfers || Number(target.available) < Number((reg[0] as any).participant_count)) return c.json({ error: 'TARGET_NOT_AVAILABLE' }, 409);
+  await sql`update registrations set workshop_id=${input.targetWorkshopId}::uuid,updated_at=now() where id=${id}::uuid`;
+  return c.json({ ok: true });
+});
+
+admin.get('/waitlist', async (c) => {
+  const rows = await db(c.env)`select e.*,w.title,w.public_code,w.starts_at from waitlist_entries e join workshops w on w.id=e.workshop_id order by e.created_at`;
+  return c.json({ entries: rows });
+});
+
+admin.post('/waitlist/:id/invite', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id'); const token = randomToken(32); const sql = db(c.env);
+  const row = await sql`update waitlist_entries set status='INVITED',invite_token=${token},invited_at=now(),invite_expires_at=now()+interval '24 hours' where id=${id}::uuid returning *`;
+  if (!row.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  return c.json({ entry: row[0], inviteUrl: `${c.env.PUBLIC_APP_URL}/waitlist/${token}` });
+});
+
+admin.get('/coupons', async (c) => c.json({ coupons: await db(c.env)`select c.*,w.title workshop_title from coupons c left join workshops w on w.id=c.workshop_id order by c.created_at desc` }));
+admin.post('/coupons', requireRole('OWNER','ADMIN'), async (c) => {
+  const input = z.object({ code: z.string().min(2), description: z.string().default(''), discountType: z.enum(['PERCENT','FIXED']), discountValue: z.number().int().positive(), maxRedemptions: z.number().int().positive().nullable().optional(), perEmailLimit: z.number().int().positive().default(1), startsAt: z.string().nullable().optional(), endsAt: z.string().nullable().optional(), minimumAmountAgorot: z.number().int().min(0).default(0), workshopId: z.string().uuid().nullable().optional(), isActive: z.boolean().default(true) }).parse(await c.req.json());
+  const row = await db(c.env)`insert into coupons(code,description,discount_type,discount_value,max_redemptions,per_email_limit,starts_at,ends_at,minimum_amount_agorot,workshop_id,is_active) values(upper(${input.code}),${input.description},${input.discountType},${input.discountValue},${input.maxRedemptions ?? null},${input.perEmailLimit},${input.startsAt ?? null}::timestamptz,${input.endsAt ?? null}::timestamptz,${input.minimumAmountAgorot},${input.workshopId ?? null}::uuid,${input.isActive}) returning *`;
+  return c.json({ coupon: row[0] }, 201);
+});
+
+admin.get('/content', async (c) => c.json({ content: Object.fromEntries((await db(c.env)`select key,value from site_content`).map((r: any) => [r.key,r.value])) }));
+admin.put('/content/:key', requireRole('OWNER','ADMIN'), async (c) => {
+  const key = c.req.param('key'); const value = await c.req.json();
+  await db(c.env)`insert into site_content(key,value,updated_at) values(${key},${JSON.stringify(value)}::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()`;
+  return c.json({ ok: true });
+});
+
+admin.get('/settings', async (c) => c.json({ settings: (await db(c.env)`select * from business_settings where singleton=true`)[0] }));
+admin.put('/settings', requireRole('OWNER'), async (c) => {
+  const input = z.object({ businessName: z.string(), legalBusinessName: z.string(), businessNumber: z.string(), contactEmail: z.string(), contactPhone: z.string(), address: z.string(), instagramUrl: z.string(), defaultHoldMinutes: z.number().int().min(3).max(60), retentionMonths: z.number().int().min(1).max(120) }).parse(await c.req.json());
+  const row = await db(c.env)`update business_settings set business_name=${input.businessName},legal_business_name=${input.legalBusinessName},business_number=${input.businessNumber},contact_email=${input.contactEmail},contact_phone=${input.contactPhone},address=${input.address},instagram_url=${input.instagramUrl},default_hold_minutes=${input.defaultHoldMinutes},retention_months=${input.retentionMonths},updated_at=now() where singleton=true returning *`;
+  return c.json({ settings: row[0] });
+});
+
+admin.get('/instructors', async (c) => c.json({ instructors: await db(c.env)`select * from instructors order by name` }));
+admin.post('/instructors', requireRole('OWNER','ADMIN'), async (c) => {
+  const input = z.object({ name: z.string(), bio: z.string().default(''), imageUrl: z.string().default(''), instagramUrl: z.string().default(''), isActive: z.boolean().default(true) }).parse(await c.req.json());
+  const row = await db(c.env)`insert into instructors(name,bio,image_url,instagram_url,is_active) values(${input.name},${input.bio},${input.imageUrl},${input.instagramUrl},${input.isActive}) returning *`;
+  return c.json({ instructor: row[0] }, 201);
+});
+
+admin.get('/products', async (c) => {
+  const sql = db(c.env); const [plans, passProducts, memberships, passes] = await Promise.all([sql`select * from membership_plans order by created_at desc`,sql`select * from pass_products order by created_at desc`,sql`select * from memberships order by created_at desc limit 500`,sql`select * from passes order by created_at desc limit 500`]);
+  return c.json({ plans, passProducts, memberships, passes });
+});
+admin.post('/membership-plans', requireRole('OWNER','ADMIN'), async (c) => {
+  const input = z.object({ name:z.string(),description:z.string().default(''),priceAgorot:z.number().int().min(0),billingInterval:z.enum(['MONTHLY','QUARTERLY','YEARLY']),includedCredits:z.number().int().min(0),discountPercent:z.number().int().min(0).max(100),isActive:z.boolean().default(true) }).parse(await c.req.json());
+  const row=await db(c.env)`insert into membership_plans(name,description,price_agorot,billing_interval,included_credits,discount_percent,is_active) values(${input.name},${input.description},${input.priceAgorot},${input.billingInterval},${input.includedCredits},${input.discountPercent},${input.isActive}) returning *`; return c.json({plan:row[0]},201);
+});
+admin.post('/pass-products', requireRole('OWNER','ADMIN'), async (c) => {
+  const input=z.object({name:z.string(),description:z.string().default(''),credits:z.number().int().positive(),priceAgorot:z.number().int().min(0),validityDays:z.number().int().positive(),isActive:z.boolean().default(true)}).parse(await c.req.json());
+  const row=await db(c.env)`insert into pass_products(name,description,credits,price_agorot,validity_days,is_active) values(${input.name},${input.description},${input.credits},${input.priceAgorot},${input.validityDays},${input.isActive}) returning *`; return c.json({product:row[0]},201);
+});
+
+admin.post('/uploads', requireRole('OWNER','ADMIN'), async (c) => {
+  const form = await c.req.formData(); const file = form.get('file');
+  if (!(file instanceof File)) return c.json({ error: 'FILE_REQUIRED' }, 400);
+  if (!file.type.startsWith('image/')) return c.json({ error: 'IMAGE_ONLY' }, 400);
+  if (file.size > 8 * 1024 * 1024) return c.json({ error: 'FILE_TOO_LARGE' }, 413);
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'-'); const key = `media/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}-${safeName}`;
+  await c.env.MEDIA.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+  const publicUrl = `${c.env.PUBLIC_APP_URL}/api/media/${encodeURIComponent(key)}`; const actor=c.get('admin');
+  const row=await db(c.env)`insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by) values(${key},${publicUrl},${file.name},${file.type},${file.size},${actor.adminId}::uuid) returning *`;
+  return c.json({ asset: row[0] }, 201);
+});
+
+admin.get('/reports/summary', async (c) => {
+  const from=c.req.query('from')??'2000-01-01'; const to=c.req.query('to')??'2100-01-01'; const sql=db(c.env);
+  const [byWorkshop,byMonth,refunds] = await Promise.all([
+    sql`select w.title,w.starts_at,count(r.id)::int registrations,coalesce(sum(r.participant_count),0)::int participants,coalesce(sum(r.amount_paid_agorot),0)::int revenue_agorot from workshops w left join registrations r on r.workshop_id=w.id and r.status in ('PAID','CHECKED_IN','PARTIALLY_REFUNDED','REFUNDED') where w.starts_at between ${from}::timestamptz and ${to}::timestamptz group by w.id order by w.starts_at`,
+    sql`select date_trunc('month',paid_at) month,coalesce(sum(amount_agorot),0)::int revenue_agorot,count(*)::int transactions from payments where status in ('SUCCEEDED','PARTIALLY_REFUNDED') and paid_at between ${from}::timestamptz and ${to}::timestamptz group by 1 order by 1`,
+    sql`select coalesce(sum(amount_agorot) filter(where status='SUCCEEDED'),0)::int refunded_agorot,count(*) filter(where status='SUCCEEDED')::int refund_count from refunds where requested_at between ${from}::timestamptz and ${to}::timestamptz`,
+  ]);
+  return c.json({ byWorkshop,byMonth,refunds:refunds[0] });
+});
+
+
+admin.get('/users', requireRole('OWNER'), async (c) => {
+  const users = await db(c.env)`select id,email,display_name,role,is_active,last_login_at,created_at from admins order by created_at`;
+  return c.json({ users });
+});
+
+admin.post('/users', requireRole('OWNER'), async (c) => {
+  const input = z.object({ email:z.string().email(), displayName:z.string().min(2), password:z.string().min(12), role:z.enum(['OWNER','ADMIN','INSTRUCTOR','VIEW_ONLY']) }).parse(await c.req.json());
+  const passwordHash = await hashPassword(input.password);
+  const row = await db(c.env)`insert into admins(email,password_hash,display_name,role) values(lower(${input.email}),${passwordHash},${input.displayName},${input.role}) returning id,email,display_name,role,is_active,created_at`;
+  return c.json({ user: row[0] }, 201);
+});
+
+admin.patch('/users/:id', requireRole('OWNER'), async (c) => {
+  const id=c.req.param('id');
+  const input=z.object({ role:z.enum(['OWNER','ADMIN','INSTRUCTOR','VIEW_ONLY']).optional(), isActive:z.boolean().optional(), password:z.string().min(12).optional(), displayName:z.string().min(2).optional() }).parse(await c.req.json());
+  const current=await db(c.env)`select * from admins where id=${id}::uuid`;
+  if(!current.length) return c.json({error:'NOT_FOUND'},404);
+  const row=current[0] as any;
+  const passwordHash=input.password?await hashPassword(input.password):row.password_hash;
+  const updated=await db(c.env)`update admins set role=${input.role??row.role},is_active=${input.isActive??row.is_active},password_hash=${passwordHash},display_name=${input.displayName??row.display_name},updated_at=now() where id=${id}::uuid returning id,email,display_name,role,is_active,last_login_at,created_at`;
+  return c.json({user:updated[0]});
+});
+
+admin.get('/legal', async (c) => c.json({ documents: await db(c.env)`select * from legal_documents order by type,created_at desc` }));
+admin.post('/legal', requireRole('OWNER','ADMIN'), async (c) => {
+  const input=z.object({type:z.enum(['TERMS','PRIVACY','CANCELLATION','ACCESSIBILITY']),version:z.string().min(1),title:z.string().min(2),content:z.string().min(10),isActive:z.boolean().default(false)}).parse(await c.req.json());
+  const sql=db(c.env);
+  if(input.isActive) await sql`update legal_documents set is_active=false where type=${input.type}`;
+  const row=await sql`insert into legal_documents(type,version,title,content,is_active,published_at) values(${input.type},${input.version},${input.title},${input.content},${input.isActive},case when ${input.isActive} then now() else null end) returning *`;
+  return c.json({document:row[0]},201);
+});
+admin.put('/legal/:id', requireRole('OWNER','ADMIN'), async (c) => {
+  const id=c.req.param('id');
+  const input=z.object({title:z.string().min(2),content:z.string().min(10),isActive:z.boolean()}).parse(await c.req.json());
+  const sql=db(c.env);const current=await sql`select type from legal_documents where id=${id}::uuid`;
+  if(!current.length)return c.json({error:'NOT_FOUND'},404);
+  if(input.isActive) await sql`update legal_documents set is_active=false where type=${(current[0] as any).type}`;
+  const row=await sql`update legal_documents set title=${input.title},content=${input.content},is_active=${input.isActive},published_at=case when ${input.isActive} then coalesce(published_at,now()) else published_at end where id=${id}::uuid returning *`;
+  return c.json({document:row[0]});
+});
+
+admin.get('/audit', requireRole('OWNER'), async (c) => c.json({ logs: await db(c.env)`select l.*,a.email admin_email from audit_logs l left join admins a on a.id=l.admin_id order by l.created_at desc limit 500` }));
+
+
+admin.get('/series', async (c) => c.json({ series: await db(c.env)`select s.*,count(w.id)::int workshop_count from workshop_series s left join workshops w on w.series_id=s.id group by s.id order by s.created_at desc` }));
+
+admin.post('/series', requireRole('OWNER','ADMIN'), async (c) => {
+  const input=z.object({name:z.string().min(2),description:z.string().default(''),frequency:z.enum(['WEEKLY','BIWEEKLY','MONTHLY','CUSTOM']).default('CUSTOM')}).parse(await c.req.json());
+  const actor=c.get('admin');
+  const rows=await db(c.env)`insert into workshop_series(name,description,frequency,created_by) values(${input.name},${input.description},${input.frequency},${actor.adminId}::uuid) returning *`;
+  return c.json({series:rows[0]},201);
+});
+
+admin.post('/series/:id/generate', requireRole('OWNER','ADMIN'), async (c) => {
+  const seriesId=c.req.param('id');
+  const input=z.object({templateWorkshopId:z.string().uuid(),occurrences:z.array(z.object({startsAt:z.string(),endsAt:z.string(),recurrenceLabel:z.string().default('')})).min(1).max(52)}).parse(await c.req.json());
+  const sql=db(c.env);const source=(await sql`select * from workshops where id=${input.templateWorkshopId}::uuid`)[0] as any;
+  if(!source)return c.json({error:'TEMPLATE_NOT_FOUND'},404);
+  const created=[];
+  for(const occurrence of input.occurrences){
+    const code=`EZ${randomToken(5).slice(0,6).toUpperCase()}`;
+    const slug=`${source.slug}-${new Date(occurrence.startsAt).toISOString().slice(0,10)}-${randomToken(2)}`.toLowerCase();
+    const rows=await sql`insert into workshops(public_code,slug,title,short_description,full_description,image_url,gallery,location_name,location_address,map_url,starts_at,ends_at,capacity,min_participants,max_participants_per_order,price_agorot,early_bird_price_agorot,deposit_agorot,level,audience,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,cancellation_policy_version,terms_version,privacy_version,created_by,series_id,recurrence_label,max_registrations_per_phone,balance_due_days_before,is_private,required_pass_credits)
+      values(${code},${slug},${source.title},${source.short_description},${source.full_description},${source.image_url},${JSON.stringify(source.gallery)}::jsonb,${source.location_name},${source.location_address},${source.map_url},${occurrence.startsAt}::timestamptz,${occurrence.endsAt}::timestamptz,${source.capacity},${source.min_participants},${source.max_participants_per_order},${source.price_agorot},${source.early_bird_price_agorot},${source.deposit_agorot},${source.level},${source.audience},${source.minimum_age},${source.allow_waitlist},${source.allow_coupons},${source.allow_transfers},'DRAFT',${source.cancellation_policy_version},${source.terms_version},${source.privacy_version},${c.get('admin').adminId}::uuid,${seriesId}::uuid,${occurrence.recurrenceLabel},${source.max_registrations_per_phone},${source.balance_due_days_before},${source.is_private},${source.required_pass_credits}) returning *`;
+    const workshop=rows[0] as any;created.push(workshop);
+    await sql`insert into workshop_instructors(workshop_id,instructor_id,revenue_share_percent) select ${workshop.id}::uuid,instructor_id,revenue_share_percent from workshop_instructors where workshop_id=${source.id}::uuid`;
+    await sql`insert into workshop_fields(workshop_id,field_key,field_type,label,help_text,required,options,display_order) select ${workshop.id}::uuid,field_key,field_type,label,help_text,required,options,display_order from workshop_fields where workshop_id=${source.id}::uuid`;
+  }
+  return c.json({workshops:created},201);
+});
+
+admin.get('/operations/requests', requireRole('OWNER','ADMIN'), async (c) => {
+  const sql=db(c.env);const [cancellations,privacy]=await Promise.all([
+    sql`select cr.*,r.registration_code,r.first_name,r.last_name,w.title,w.starts_at from cancellation_requests cr join registrations r on r.id=cr.registration_id join workshops w on w.id=r.workshop_id order by cr.created_at desc`,
+    sql`select * from privacy_requests order by created_at desc`,
+  ]);return c.json({cancellations,privacy});
+});
+
+admin.patch('/operations/cancellations/:id', requireRole('OWNER','ADMIN'), async (c) => {
+  const input=z.object({status:z.enum(['OPEN','APPROVED','REJECTED','COMPLETED']),adminNotes:z.string().max(3000).default('')}).parse(await c.req.json());
+  const rows=await db(c.env)`update cancellation_requests set status=${input.status},admin_notes=${input.adminNotes},resolved_at=case when ${input.status} in ('REJECTED','COMPLETED') then now() else null end where id=${c.req.param('id')}::uuid returning *`;
+  if(!rows.length)return c.json({error:'NOT_FOUND'},404);return c.json({request:rows[0]});
+});
+
+admin.patch('/operations/privacy/:id', requireRole('OWNER'), async (c) => {
+  const input=z.object({status:z.enum(['OPEN','IN_PROGRESS','COMPLETED','REJECTED']),adminNotes:z.string().max(3000).default(''),anonymize:z.boolean().default(false)}).parse(await c.req.json());
+  const sql=db(c.env);const requests=await sql`select * from privacy_requests where id=${c.req.param('id')}::uuid`;const req=requests[0] as any;
+  if(!req)return c.json({error:'NOT_FOUND'},404);
+  if(input.anonymize){
+    const marker=`deleted-${String(req.id).slice(0,8)}@example.invalid`;
+    await sql`update registration_participants p set first_name='Deleted',last_name='User',experience_level='',partner_name='',metadata='{}'::jsonb from registrations r where p.registration_id=r.id and lower(r.email)=lower(${req.email})`;
+    await sql`update registrations set first_name='Deleted',last_name='User',email=${marker},phone='',phone_normalized='',notes='',guardian='{}'::jsonb,custom_answers='{}'::jsonb,marketing_consent=false,marketing_consent_at=null where lower(email)=lower(${req.email})`;
+    await sql`delete from waitlist_entries where lower(email)=lower(${req.email})`;
+    await sql`update passes set email=${marker},full_name='Deleted User' where lower(email)=lower(${req.email})`;
+    await sql`update memberships set email=${marker},full_name='Deleted User',phone='' where lower(email)=lower(${req.email})`;
+    await sql`update commerce_orders set email=${marker},full_name='Deleted User',phone='',metadata=metadata-'personalData' where lower(email)=lower(${req.email})`;
+  }
+  const rows=await sql`update privacy_requests set status=${input.status},admin_notes=${input.adminNotes},completed_at=case when ${input.status}='COMPLETED' then now() else null end where id=${req.id}::uuid returning *`;
+  return c.json({request:rows[0]});
+});
+
+admin.get('/exports/registrations.csv', async (c) => {
+  const rows=await db(c.env)`select r.registration_code,w.title,w.starts_at,r.status,r.first_name,r.last_name,r.email,r.phone,r.participant_count,r.total_amount_agorot,r.amount_paid_agorot,r.created_at from registrations r join workshops w on w.id=r.workshop_id order by w.starts_at,r.created_at` as any[];
+  const quote=(v:unknown)=>`"${String(v??'').replaceAll('"','""')}"`;
+  const columns=['registration_code','title','starts_at','status','first_name','last_name','email','phone','participant_count','total_amount_agorot','amount_paid_agorot','created_at'];
+  const csv='\uFEFF'+columns.join(',')+'\n'+rows.map(r=>columns.map(k=>quote(r[k])).join(',')).join('\n');
+  return new Response(csv,{headers:{'content-type':'text/csv; charset=utf-8','content-disposition':'attachment; filename="eden-registrations.csv"'}});
+});
+
+admin.get('/reports/instructor-revenue', async (c) => {
+  const rows=await db(c.env)`select i.name,w.title,w.starts_at,wi.revenue_share_percent,coalesce(sum(r.amount_paid_agorot),0)::int gross_agorot,round(coalesce(sum(r.amount_paid_agorot),0)*wi.revenue_share_percent/100)::int instructor_share_agorot
+    from workshop_instructors wi join instructors i on i.id=wi.instructor_id join workshops w on w.id=wi.workshop_id left join registrations r on r.workshop_id=w.id and r.status in ('DEPOSIT_PAID','PAID','CHECKED_IN','PARTIALLY_REFUNDED') group by i.id,w.id,wi.revenue_share_percent order by w.starts_at desc`;
+  return c.json({rows});
+});
+
+export default admin;
