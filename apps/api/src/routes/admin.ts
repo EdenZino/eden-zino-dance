@@ -344,8 +344,8 @@ admin.put('/content/:key', requireRole('OWNER','ADMIN'), async (c) => {
 
 admin.get('/settings', async (c) => c.json({ settings: (await db(c.env)`select * from business_settings where singleton=true`)[0] }));
 admin.put('/settings', requireRole('OWNER'), async (c) => {
-  const input = z.object({ businessName: z.string(), legalBusinessName: z.string(), businessNumber: z.string(), contactEmail: z.string(), contactPhone: z.string(), address: z.string(), instagramUrl: z.string(), defaultHoldMinutes: z.number().int().min(3).max(60), retentionMonths: z.number().int().min(1).max(120) }).parse(await c.req.json());
-  const row = await db(c.env)`update business_settings set business_name=${input.businessName},legal_business_name=${input.legalBusinessName},business_number=${input.businessNumber},contact_email=${input.contactEmail},contact_phone=${input.contactPhone},address=${input.address},instagram_url=${input.instagramUrl},default_hold_minutes=${input.defaultHoldMinutes},retention_months=${input.retentionMonths},updated_at=now() where singleton=true returning *`;
+  const input = z.object({ businessName: z.string(), legalBusinessName: z.string(), businessNumber: z.string(), contactEmail: z.string(), contactPhone: z.string(), address: z.string(), instagramUrl: z.string(), defaultHoldMinutes: z.number().int().min(3).max(60), retentionMonths: z.number().int().min(1).max(120), publicTheme: z.enum(['CLASSIC','MODERN']).default('CLASSIC') }).parse(await c.req.json());
+  const row = await db(c.env)`update business_settings set business_name=${input.businessName},legal_business_name=${input.legalBusinessName},business_number=${input.businessNumber},contact_email=${input.contactEmail},contact_phone=${input.contactPhone},address=${input.address},instagram_url=${input.instagramUrl},default_hold_minutes=${input.defaultHoldMinutes},retention_months=${input.retentionMonths},public_theme=${input.publicTheme},updated_at=now() where singleton=true returning *`;
   return c.json({ settings: row[0] });
 });
 

@@ -1,64 +1,68 @@
-# Eden Zino Dance — מערכת סדנאות מלאה
+# Eden Zino Dance — פלטפורמת סדנאות גרסה 1.3.0
 
-מערכת מלאה לניהול ושיווק סדנאות ריקוד: אתר ציבורי, קוד סדנה, הרשמה, שמירת מקום אטומית, תשלום, קופונים, Early Bird, מקדמות, מספר משתתפים, רשימת המתנה, נוכחות, ביטולים, החזרים, העברות, מנויים, כרטיסיות, דוחות, תוכן ותמונות.
+מערכת מלאה לניהול, שיווק ומכירת סדנאות ריקוד: אתר ציבורי mobile-first, ממשק ניהול, קודי סדנה, הרשמה, קיבולת אטומית, PayMe, קופונים, Early Bird, מקדמות, רשימת המתנה, נוכחות, ביטולים, החזרים, העברות, מנויים, כרטיסיות, תוכן, דוחות ו־Audit Log.
 
-## מה כלול
+## סטטוס הגרסה
 
-- אתר React בגישת mobile-first בעברית ו-RTL, כולל ניווט וטפסים נגישים לטלפון.
-- ממשק ניהול עם הרשאות OWNER / ADMIN / INSTRUCTOR / VIEW_ONLY.
-- Cloudflare Worker שמגיש גם את האתר וגם את ה-API.
-- Neon PostgreSQL עם Migration מלא ופונקציות אטומיות.
+פערי P0 ברמת הקוד נסגרו. נוספו אבטחת אזור לקוח, Rate Limiting אמיתי של Cloudflare, Turnstile, נעילת מנהלים, איפוס סיסמה, OTP, החזרים אטומיים, ביטול שלם, העברה אטומית, סטטוסים אמיתיים להתראות ושער Go-Live.
+
+המערכת אינה מכריזה על עצמה כ־Production Ready רק מפני שה־Build עבר. ממשק הניהול חוסם מוכנות עד שקיימים:
+
+- פרטי עסק מלאים.
+- מסמכים משפטיים מאושרים על ידי OWNER.
+- Turnstile ו־MFA פעילים.
+- Rate Limit bindings פעילים.
+- ספק דוא״ל פעיל.
+- עסקת PayMe מוצלחת בסביבה הפעילה.
+- החזר PayMe מוצלח בסביבה הפעילה.
+- סימון סביבת ספק שמונע מנתוני Sandbox להיחשב כבדיקות Production.
+- יציאה מ־Sandbox.
+
+קרא את `docs/P0_CLOSURE_REPORT_HE.md` ואת `docs/PRODUCTION_CHECKLIST_HE.md`.
+
+## תיקון מובייל ב־1.3.0
+
+תפריט האתר ותפריט הניהול אינם מתכווצים עוד ב־Chrome בטלפון. ה־Drawer משתמש ברוחב viewport מפורש, אינו רשאי להתכווץ כ־Flex item, כולל גלילה פנימית וקישורים ברוחב מלא. במסכים עד 380px הוא נפתח ברוחב המסך.
+
+## רכיבים
+
+- React/Vite בעברית ו־RTL.
+- Cloudflare Worker שמגיש אתר ו־API באותו דומיין.
+- Neon PostgreSQL וארבע מיגרציות.
 - Cloudflare R2 לתמונות.
-- מצב Mock לבדיקת תשלום ללא חיוב.
-- חיבור PayMe באמצעות Hosted Payment Page ו-Callback בצד השרת.
-- תמיכה קיימת גם ב-Tranzila ובמצב Mock לצורכי פיתוח.
-- דוא״ל דרך Resend.
-- Webhooks חתומים לחיבור WhatsApp ולמערכת חשבוניות.
-- Cron לשחרור מקומות שפג תוקפם ולשליחת תזכורות.
-- GitHub Actions לפריסה אוטומטית.
-
-## חשוב לפני שמתחילים
-
-הקוד אינו יכול לפתוח עבורך חשבון סליקה, חשבון חשבוניות, חשבון דוא״ל או מסד נתונים. בלי פרטי החשבונות והסודות שלהם המערכת תפעל במצב בדיקות בלבד. אין להפעיל גבייה אמיתית לפני החלפת מסמכי DRAFT בנוסחים שנבדקו משפטית.
+- PayMe Hosted Payment ו־Callback שרת.
+- Refund orchestration מלא ברמת המערכת.
+- Magic Link ו־Session מאובטח ללקוחות.
+- OWNER / ADMIN / INSTRUCTOR / VIEW_ONLY.
+- Resend לדוא״ל ו־Webhooks חתומים לחשבוניות ול־WhatsApp.
+- Cron לשחרור מקומות, Waitlist, תזכורות ותחזוקה.
 
 ## דרישות
 
 - Node.js 22 ומעלה.
-- חשבון Cloudflare עם Workers ו-R2.
-- מסד Neon PostgreSQL.
-- לסליקה אמיתית: חשבון PayMe פעיל, `seller_payme_id`, `payme_client_key` וכתובת API לסביבת הייצור.
-- לדוא״ל: חשבון Resend ודומיין מאומת.
+- Cloudflare Workers + R2.
+- Neon PostgreSQL.
+- חשבון PayMe מאושר לסליקה והחזרים.
+- Cloudflare Turnstile.
+- Resend עם דומיין שולח מאומת.
+- ספק חשבוניות ישראלי.
 
 ## התקנה מקומית
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
+cp .dev.vars.example .dev.vars
 cp wrangler.toml.example wrangler.toml
 ```
 
-הגדר `DATABASE_URL` ואז:
+החלף את ערכי הדוגמה בלבד. אין להדביק סודות בקוד או ב־Git.
 
 ```bash
 set -a
 source .env
 set +a
 npm run migrate
-```
-
-ל-Wrangler מקומי צור `.dev.vars` בשורש:
-
-```dotenv
-DATABASE_URL=postgresql://...
-SETUP_TOKEN=...
-SESSION_SECRET=...
-PUBLIC_APP_URL=http://localhost:5173
-PAYMENT_PROVIDER=mock
-```
-
-הפעלה:
-
-```bash
 npm run dev
 ```
 
@@ -66,109 +70,70 @@ npm run dev
 - Worker: `http://localhost:8787`
 - ניהול: `http://localhost:5173/admin`
 
-בכניסה הראשונה בחר "הקמה ראשונית" והזן את `SETUP_TOKEN`.
-
-## פריסה ל-Cloudflare
-
-### 1. יצירת Neon
-
-העתק Connection String מאובטח של Neon. להרצה Serverless מומלץ חיבור pooled. הרץ:
-
-```bash
-DATABASE_URL="postgresql://..." npm run migrate
-```
-
-### 2. יצירת R2
-
-```bash
-npx wrangler login
-npx wrangler r2 bucket create eden-dance-media
-npx wrangler r2 bucket create eden-dance-media-preview
-```
-
-### 3. עריכת Wrangler
-
-ערוך את `wrangler.toml`:
-
-- שנה `name` אם נדרש.
-- שנה `PUBLIC_APP_URL` לדומיין הסופי.
-- ודא ששמות דליי R2 נכונים.
-- השאר `PAYMENT_PROVIDER = "mock"` עד שהסליקה נבדקה.
-
-### 4. הגדרת סודות
+## סודות Cloudflare
 
 ```bash
 npx wrangler secret put DATABASE_URL
 npx wrangler secret put SETUP_TOKEN
 npx wrangler secret put SESSION_SECRET
-npx wrangler secret put RESEND_API_KEY
 npx wrangler secret put PAYME_SELLER_ID
 npx wrangler secret put PAYME_CLIENT_KEY
 npx wrangler secret put PAYME_CALLBACK_SECRET
+npx wrangler secret put TURNSTILE_SECRET_KEY
+npx wrangler secret put RESEND_API_KEY
 npx wrangler secret put INVOICE_WEBHOOK_SECRET
 npx wrangler secret put WHATSAPP_WEBHOOK_SECRET
 ```
 
-### 5. Build ופריסה
+`TURNSTILE_SITE_KEY` הוא מפתח ציבורי ונכנס ל־`wrangler.toml`. סוד Turnstile נשמר רק כ־Secret.
 
-```bash
-npm run build
-npm run deploy
-```
+## הגדרת PayMe
 
-### 6. מעבר מסליקה מדומה לאמיתית
-
-ב-`wrangler.toml`:
+בשלב ראשון:
 
 ```toml
 PAYMENT_PROVIDER = "payme"
 PAYME_API_BASE = "https://sandbox.payme.io/api"
+PAYME_REFUND_PATH = "refund-sale"
 ```
 
-הגדר את שלושת סודות PayMe ב-Cloudflare. בסביבת הייצור החלף את `PAYME_API_BASE` בכתובת שקיבלת מ-PayMe. בצע עסקת בדיקה מלאה וודא שהסטטוס משתנה ל-PAID רק לאחר Callback מהשרת. הוראות מלאות נמצאות ב-`docs/PAYME_SETUP_HE.md`.
+יש לבדוק תשלום מוצלח, כישלון, Callback כפול, סכום שגוי, מקדמה, יתרה, החזר מלא והחזר חלקי. רק לאחר אישור PayMe עוברים לכתובת הייצור שסופקה לחשבון.
 
-## GitHub Actions
+המערכת אינה מאשרת תשלום דרך Return URL. רק Callback מאומת משנה סטטוס כספי.
 
-הוסף ל-Secrets של GitHub:
+## מסמכים משפטיים
 
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
+שמירת מסמך בממשק יוצרת טיוטה. רק OWNER יכול לאשר גרסה, והאישור נשמר עם תאריך והערה. שינוי תוכן מבטל אישור קודם. זה מנגנון בקרה, לא תחליף לעורך דין.
 
-ה-Workflow נמצא ב-`.github/workflows/deploy.yml`.
+## בדיקה לפני פריסה
 
-## תוכן של עדן
+```bash
+npm run validate
+npx wrangler deploy --dry-run
+npm audit --audit-level=high
+```
 
-בממשק הניהול, תחת "תוכן ותמונות", ניתן לערוך:
+לאחר מכן:
 
-- כותרת ותיאור Hero.
-- הודעה עליונה.
-- ביוגרפיה של עדן.
-- גישת ההוראה.
-- תמונת תדמית.
-- קישור Instagram.
+```bash
+npm run deploy
+```
 
-לא הוכנסו תמונות מהאינסטגרם לקוד. יש להעלות תמונות שבבעלות העסק או שקיימת הרשאה מפורשת להשתמש בהן.
+## אזהרת סודות
 
-## תשלום, החזרים וחשבוניות
-
-- תשלום חדש נוצר רק בצד השרת.
-- המחיר נשלף מהמסד ולא מתקבל מהדפדפן.
-- המקום נשמר לזמן מוגבל.
-- Callback מאמת סוד ייעודי, מזהה תשלום, מזהה מוכר וסכום לפני אישור.
-- החזר נפתח במערכת כ-`MANUAL_ACTION_REQUIRED`, מבוצע אצל ספק הסליקה ואז מסומן כהושלם בניהול.
-- חשבוניות נשלחות ל-`INVOICE_WEBHOOK_URL`; יש לחבר ספק חשבוניות ישראלי ולמפות את ה-Payload.
+בגרסה שהועלתה לבדיקה נמצא `DATABASE_URL` שנראה אמיתי בתוך `.env.example`. הוא הוסר. כאשר המחרוזת הייתה פעילה, יש לסובב מיד את סיסמת Neon. מחיקת הקובץ אינה מבטלת גישה למי שכבר ראה אותו.
 
 ## מבנה הפרויקט
 
 ```text
 apps/web        אתר React וממשק ניהול
-apps/api        Cloudflare Worker ו-API
+apps/api        Cloudflare Worker ו־API
 db/migrations   סכמת PostgreSQL ופונקציות אטומיות
-scripts         Migration וזריעה
+scripts         Migration, Seed ואימות
 .github         פריסה אוטומטית
-docs            מסמכי הפעלה, משפט ואבטחה
+docs            תיעוד הפעלה, אבטחה, PayMe ומשפט
 ```
 
-## בדיקות חובה לפני ייצור
+## בחירת עיצוב
 
-קרא את `docs/PRODUCTION_CHECKLIST_HE.md`, את `docs/PAYME_SETUP_HE.md` ואת `docs/MOBILE_ACCESSIBILITY_HE.md`. אל תדלג על בדיקות סליקה, ביטול, תחרות על המקום האחרון, הרשאות מנהלים, נגישות וגיבוי.
+האתר הציבורי תומך בשני עיצובים מתוך **ניהול → הגדרות**: `Classic` ו־`Modern`. השינוי נשמר במסד ואינו דורש Deploy נוסף. ראו `docs/DUAL_THEME_AND_MOBILE_MENU_HE.md`.

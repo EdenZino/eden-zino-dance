@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 
 const db = new PGlite();
-for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql']) {
+for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql']) {
   let sql = await fs.readFile(file, 'utf8');
   // PGlite includes gen_random_uuid but does not package the pgcrypto extension.
   sql = sql.replace(/create extension if not exists pgcrypto;?/ig, '');
@@ -55,6 +55,12 @@ if (legalColumns !== 3) throw new Error('legal approval fields missing');
 const environmentColumns = (await db.query("select count(*)::int count from information_schema.columns where (table_name='payments' and column_name='provider_environment') or (table_name='refunds' and column_name='provider_environment')")).rows[0].count;
 if (environmentColumns !== 2) throw new Error('provider environment fields missing');
 console.log('✓ secure portal, password reset, MFA and legal approval schema');
+const themeSetting = (await db.query("select public_theme from business_settings where singleton=true")).rows[0]?.public_theme;
+if (themeSetting !== 'CLASSIC') throw new Error('public theme migration/default failed');
+await db.query("update business_settings set public_theme='MODERN' where singleton=true");
+const updatedTheme = (await db.query("select public_theme from business_settings where singleton=true")).rows[0]?.public_theme;
+if (updatedTheme !== 'MODERN') throw new Error('public theme update failed');
+console.log('✓ classic/modern public theme setting');
 
 // P0: truthful notification status must not masquerade as sent.
 await db.query("insert into notification_jobs(registration_id,channel,template_key,status,last_error) values($1,'EMAIL','TEST_CONFIGURATION','CONFIGURATION_ERROR','EMAIL_PROVIDER_NOT_CONFIGURED')", [reserve.registration_id]);

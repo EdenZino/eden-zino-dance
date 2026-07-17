@@ -91,7 +91,7 @@ p{line-height:1.75}
 .main-nav a.active::after,.main-nav a:hover::after{transform:scaleX(1)}
 .mobile-menu{display:none}
 .mobile-only-label{display:none}
-.nav-scrim,.admin-scrim{display:none}
+.nav-scrim,.admin-scrim,.mobile-drawer-layer{display:none}
 
 /* ---------- hero ---------- */
 .hero{min-height:calc(100vh - 84px);display:grid;grid-template-columns:1.05fr .95fr;gap:5vw;align-items:center;overflow:hidden}
@@ -433,6 +433,51 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .admin-panel td:first-child,.admin-panel th:first-child{position:sticky;right:0;background:var(--card);z-index:1}
 .admin-panel th:first-child{z-index:2}
 
+/* ---------- selectable public themes ---------- */
+.theme-preview-banner{display:flex;align-items:center;justify-content:center;gap:1rem;padding:.65rem 1rem;background:#FFF4CF;border-bottom:1px solid #E4C875;color:#49340B;font-weight:800;font-size:.88rem}
+.theme-preview-banner a{text-decoration:underline;text-underline-offset:3px}
+
+/* Classic restores the original graphic/stage treatment while sharing all functionality. */
+.theme-classic .hero-visual{background-position:center}
+.theme-classic .hero-visual::before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.35) 1.3px,transparent 1.6px);background-size:11px 11px;mix-blend-mode:overlay;opacity:.55;pointer-events:none;z-index:1;border:0;border-radius:0}
+.theme-classic .hero-visual::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 72% 78%,rgba(242,169,59,.55),transparent 55%),linear-gradient(155deg,rgba(226,62,87,.35),transparent 60%);mix-blend-mode:screen;pointer-events:none;z-index:1}
+.theme-classic .orbit{display:block;position:absolute;border:1.5px dashed rgba(242,169,59,.55);border-radius:50%;z-index:2}
+.theme-classic .orbit-one{width:64%;height:64%;left:18%;top:10%;animation:spin-slow 60s linear infinite}
+.theme-classic .orbit-two{width:38%;height:38%;left:31%;top:33%;border-color:rgba(226,62,87,.6);animation:spin-slow 40s linear infinite reverse}
+@keyframes spin-slow{to{transform:rotate(360deg)}}
+.theme-classic .dance-letter{display:block;position:absolute;font-family:var(--font-display);font-size:20rem;line-height:1;color:rgba(255,255,255,.06);left:6%;bottom:-3rem;letter-spacing:-.05em;z-index:1}
+.theme-classic .vertical-copy{color:rgba(255,255,255,.55)}
+.theme-classic .portrait-panel{background-position:center}
+.theme-classic .portrait-panel::before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.3) 1.3px,transparent 1.6px);background-size:10px 10px;mix-blend-mode:overlay;opacity:.5;border:0;border-radius:0}
+.theme-classic .portrait-panel::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(242,169,59,.3),transparent 55%)}
+.theme-classic .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.theme-classic .form-grid>label,.theme-classic .form-grid .field-xs,.theme-classic .form-grid .field-sm,.theme-classic .form-grid .field-date{min-width:0;max-width:none;flex:auto}
+.theme-classic .form-grid .wide{grid-column:1/-1}
+
+/* Theme selection in administration. */
+.theme-picker{background:#FAF6F4}
+.theme-picker>p{color:var(--muted);margin:.35rem 0 1rem}
+.theme-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.theme-option{display:flex;grid-template-columns:none;align-items:flex-start;gap:.8rem;padding:1rem;border:2px solid var(--line);border-radius:var(--radius-md);background:var(--card);cursor:pointer}
+.theme-option:has(input:checked){border-color:var(--rhythm);box-shadow:0 0 0 3px rgba(226,62,87,.12)}
+.theme-option input{width:22px;min-width:22px;height:22px;min-height:22px;margin:.1rem 0 0}
+.theme-option span{display:grid;gap:.25rem}
+.theme-option b{font-family:var(--font-display);font-size:1.25rem}
+.theme-option small{color:var(--muted);font-weight:400;line-height:1.5}
+.theme-preview-actions{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:1rem}
+
+/* Mobile drawer is portalled to document.body. It cannot be clipped by the sticky,
+   backdrop-filtered header and therefore keeps a real viewport width on Chrome/iOS. */
+.mobile-drawer-layer{display:none}
+.mobile-drawer-scrim{position:fixed;inset:0;border:0;background:rgba(10,6,9,.55);z-index:10000}
+.mobile-drawer{position:fixed;inset-block:0;inset-inline-end:0;width:min(88vw,380px);min-width:min(88vw,380px);max-width:100vw;height:100dvh;min-height:100dvh;z-index:10001;background:var(--paper);color:var(--ink);display:flex;flex:0 0 auto;flex-shrink:0;flex-direction:column;overflow:hidden;box-sizing:border-box;box-shadow:-24px 0 60px rgba(20,10,15,.3);padding:max(1rem,env(safe-area-inset-top)) max(1rem,env(safe-area-inset-right)) max(1rem,env(safe-area-inset-bottom)) max(1rem,env(safe-area-inset-left));animation:drawer-in .22s ease both}
+.mobile-drawer-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex:0 0 auto;padding-bottom:1rem;border-bottom:1px solid var(--line)}
+.mobile-drawer-nav{display:flex;flex:1 1 auto;min-height:0;width:100%;flex-direction:column;align-items:stretch;gap:.4rem;padding-top:1rem;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+.mobile-drawer-nav a{display:flex;width:100%;min-width:0;max-width:100%;flex:0 0 auto;align-items:center;gap:.7rem;padding:.9rem 1rem;border-radius:var(--radius-sm);font-size:1.05rem;font-weight:800;white-space:normal;overflow-wrap:normal;word-break:normal}
+.mobile-drawer-nav a.active,.mobile-drawer-nav a:hover{background:#F1DEE3;color:var(--rhythm)}
+.mobile-drawer-nav .mobile-only-label{display:inline}
+@keyframes drawer-in{from{transform:translate3d(105%,0,0)}to{transform:translate3d(0,0,0)}}
+
 /* ============================================================
    Responsive
    ============================================================ */
@@ -451,14 +496,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .brand b{font-size:.82rem}
   .brand small{font-size:.54rem}
   .mobile-menu{display:grid;place-items:center;position:relative;z-index:62}
-  .main-nav{display:flex;position:fixed;top:72px;right:0;bottom:0;left:auto;inline-size:min(88dvw,380px);width:min(88dvw,380px);min-width:min(88dvw,380px);max-width:100vw;flex:0 0 auto;flex-shrink:0;padding:1.25rem;background:var(--paper);flex-direction:column;align-items:stretch;align-content:stretch;gap:.3rem;border:0;box-shadow:-24px 0 60px rgba(20,10,15,.22);transform:translate3d(105%,0,0);visibility:hidden;transition:transform .22s ease,visibility .22s ease;z-index:60;overflow-x:hidden;overflow-y:auto;box-sizing:border-box;contain:layout paint}
-  .main-nav.open{display:flex;transform:translate3d(0,0,0);visibility:visible}
-  .main-nav a{display:flex;width:100%;min-width:0;max-width:100%;flex:0 0 auto;align-items:center;gap:.65rem;border-radius:var(--radius-sm);padding:.75rem 1rem;font-size:1rem;white-space:nowrap;overflow:visible}
-  .main-nav a.active{background:#F1DEE3}
-  .main-nav a::after{display:none}
-  .mobile-only-label{display:inline}
-  .nav-scrim,.admin-scrim{display:block;position:fixed;inset:72px 0 0;border:0;background:rgba(10,6,9,.48);z-index:54}
-  .admin-scrim{inset:0;z-index:90}
+  .desktop-nav{display:none}
+  .mobile-drawer-layer{display:block}
+  .admin-scrim{display:block;position:fixed;inset:0;border:0;background:rgba(10,6,9,.48);z-index:90}
   .section-pad{padding:3.25rem 1rem}
   .hero{min-height:auto;padding-top:2rem;grid-template-columns:1fr}
   .hero-copy p{font-size:1rem}
@@ -479,6 +519,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .workshop-description h2{font-size:2.2rem}
   .info-grid{grid-template-columns:1fr}
   .form-grid>label,.form-grid .field-xs,.form-grid .field-sm,.form-grid .field-date{flex-basis:100%}
+  .theme-classic .form-grid{grid-template-columns:1fr}
+  .theme-classic .form-grid .wide{grid-column:auto}
+  .theme-options{grid-template-columns:1fr}
+  .theme-preview-actions .button{width:100%}
   .booking-card{border:1px solid var(--line);box-shadow:var(--shadow-soft)}
   .mobile-booking-bar{display:flex;position:fixed;right:0;left:0;bottom:0;z-index:48;align-items:center;justify-content:space-between;gap:1rem;padding:.7rem max(1rem,env(safe-area-inset-right)) calc(.7rem + env(safe-area-inset-bottom)) max(1rem,env(safe-area-inset-left));background:rgba(255,255,255,.96);border-top:1px solid var(--line);box-shadow:0 -12px 35px rgba(28,15,20,.16);backdrop-filter:blur(14px)}
   .mobile-booking-bar>div{display:grid}
@@ -532,10 +576,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .code-open-button,.code-box .button{width:100%}
   .modal{padding:1.3rem}
   .site-header{height:72px}
-  .main-nav{top:72px}
 }
 @media(max-width:380px){
-  .main-nav,.admin-sidebar{inline-size:100vw;width:100vw;min-width:100vw;max-width:100vw}
+  .mobile-drawer,.admin-sidebar{inline-size:100vw;width:100vw;min-width:100vw;max-width:100vw}
   h1{font-size:2.8rem}
   .workshop-cover h1{font-size:2.4rem}
   .mobile-booking-bar{gap:.5rem}
