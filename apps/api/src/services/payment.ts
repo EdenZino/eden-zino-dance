@@ -9,6 +9,7 @@ export interface PaymentRequest {
   email: string;
   phone: string;
   productName: string;
+  accessToken?: string;
 }
 
 export interface PaymentSession {
@@ -25,15 +26,16 @@ function required(value: string | undefined, name: string): string {
 
 export async function buildPaymentSession(env: Env, request: PaymentRequest): Promise<PaymentSession> {
   const appUrl = env.PUBLIC_APP_URL.replace(/\/$/, '');
+  const accessPart = request.accessToken ? `&access=${encodeURIComponent(request.accessToken)}` : '';
   const resultPath = request.referenceType === 'registration'
-    ? `/payment/result?registration=${encodeURIComponent(request.referenceCode)}`
-    : `/products/result?order=${encodeURIComponent(request.referenceCode)}`;
+    ? `/payment/result?registration=${encodeURIComponent(request.referenceCode)}${accessPart}`
+    : `/products/result?order=${encodeURIComponent(request.referenceCode)}${accessPart}`;
 
   if (env.PAYMENT_PROVIDER === 'mock') {
     return {
       provider: 'mock',
       method: 'redirect',
-      url: `${appUrl}/payment/mock?payment=${encodeURIComponent(request.paymentId)}&type=${request.referenceType}&reference=${encodeURIComponent(request.referenceCode)}`,
+      url: `${appUrl}/payment/mock?payment=${encodeURIComponent(request.paymentId)}&type=${request.referenceType}&reference=${encodeURIComponent(request.referenceCode)}${request.accessToken ? `&access=${encodeURIComponent(request.accessToken)}` : ''}`,
     };
   }
 

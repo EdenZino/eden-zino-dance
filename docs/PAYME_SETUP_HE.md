@@ -1,45 +1,56 @@
-# חיבור PayMe למערכת Eden Zino Dance
+# חיבור PayMe — תשלום והחזר
 
-## מה כבר ממומש בקוד
+## מה ממומש בגרסה 1.2.0
 
-המערכת משתמשת בזרימת Hosted Payment Page:
+### תשלום
 
-1. השרת יוצר רשומת תשלום פנימית ומקצה לה UUID.
-2. ה-Cloudflare Worker שולח ל-PayMe בקשת `generate-sale` בצד השרת בלבד.
-3. PayMe מחזירה `sale_url` ו-`payme_sale_id`.
-4. הדפדפן מופנה לדף התשלום של PayMe. פרטי הכרטיס אינם עוברים דרך האתר.
+1. השרת יוצר הרשמה ורשומת Payment פנימית.
+2. הסכום מחושב בשרת מתוך הסדנה, הקופון, המקדמה והזכאויות.
+3. ה־Worker שולח ל־PayMe בקשת יצירת עסקה.
+4. הלקוח מופנה ל־Hosted Payment Page.
 5. PayMe שולחת Callback לשרת.
-6. השרת מאמת את סוד ה-Callback, מזהה העסקה, מזהה המוכר והסכום.
-7. רק Callback בסטטוס `completed` מאשר את ההרשמה או את רכישת המוצר.
-8. הטיפול אידמפוטנטי: Callback כפול לא ייצור חיוב או זיכוי כפול במסד.
+6. השרת מאמת Secret, מזהה מוכר, Payment UUID וסכום.
+7. רק Callback מוצלח מאשר את ההרשמה.
+8. Callback כפול אינו יוצר אישור כפול.
 
-## פרטים שצריך לקבל מ-PayMe
+Return URL אינו הוכחת תשלום ואינו משנה סטטוס כספי.
 
-- חשבון עסק פעיל ומאושר לסליקה באינטרנט.
-- `seller_payme_id` / API Key שמתחיל בדרך כלל ב-`MPL`.
-- `payme_client_key` המתאים לאינטגרציית API.
-- כתובת API לסביבת הייצור. סביבת הבדיקות המוגדרת בחבילה היא `https://sandbox.payme.io/api`.
-- אישור אמצעי התשלום הרצויים בחשבון: כרטיס אשראי, Bit, Apple Pay או אמצעים אחרים הנתמכים בחשבון.
-- פרטי בדיקה או הרשאה לסביבת Sandbox.
+### החזר
 
-אין להכניס את המפתחות לקוד, ל-GitHub או ל-`wrangler.toml`.
+1. ההחזר מוקצה אטומית לתשלומים ששולמו.
+2. סכום שכבר הוקצה או הוחזר אינו ניתן להקצאה חוזרת.
+3. לכל Refund נשמר `idempotency_key` קבוע.
+4. המערכת שולחת בקשת החזר לנתיב המוגדר ב־`PAYME_REFUND_PATH`.
+5. הצלחה משלימה את ההחזר במסד.
+6. כישלון נשמר ומופיע במסך התפעול.
+7. ניתן לבצע Retry באותו מפתח Idempotency.
+8. כאשר המסוף אינו מאפשר API אוטומטי, ניתן לבצע החזר ידני ב־PayMe ולסמן השלמה רק לאחר קבלת מזהה החזר.
+9. Callback מסוג refund יכול להשלים Refund קיים.
 
-## הגדרת Cloudflare
+## מידע שצריך לקבל מ־PayMe
 
-תחילה קבעו ב-`wrangler.toml`:
+- `PAYME_SELLER_ID`.
+- `PAYME_CLIENT_KEY`.
+- כתובת API ל־Sandbox ולייצור.
+- הרשאת Hosted Payment Page.
+- הרשאת Refund API מלא וחלקי.
+- נתיב Refund המדויק למסוף, כאשר הוא שונה מ־`refund-sale`.
+- שמות השדות וסטטוס ההצלחה למסוף שלך.
+- אמצעי התשלום שהופעלו בחשבון.
+
+## הגדרת Wrangler
 
 ```toml
 [vars]
-PUBLIC_APP_URL = "https://dance.your-domain.co.il"
+PUBLIC_APP_URL = "https://dance.example.co.il"
 PAYMENT_PROVIDER = "payme"
 PAYME_API_BASE = "https://sandbox.payme.io/api"
+PAYME_REFUND_PATH = "refund-sale"
 PAYME_LANGUAGE = "he"
 PAYME_PAYMENT_METHOD = ""
 ```
 
-בייצור יש להחליף את `PAYME_API_BASE` בכתובת שסופקה על ידי PayMe.
-
-לאחר מכן הגדירו סודות:
+## סודות
 
 ```bash
 npx wrangler secret put PAYME_SELLER_ID
@@ -47,58 +58,47 @@ npx wrangler secret put PAYME_CLIENT_KEY
 npx wrangler secret put PAYME_CALLBACK_SECRET
 ```
 
-עבור `PAYME_CALLBACK_SECRET` השתמשו במחרוזת אקראית ארוכה, לדוגמה:
+צור Secret אקראי:
 
 ```bash
 openssl rand -base64 48
 ```
 
-## כתובות המערכת
+## Callback
 
-Callback ש-PayMe תקבל אוטומטית בעת יצירת העסקה:
-
-```text
-https://dance.your-domain.co.il/api/public/payments/payme/callback?token=<SECRET>
-```
-
-אין צורך להדביק את ה-Secret במסמכים או לשלוח אותו בדוא"ל. הקוד בונה את הכתובת מתוך הסוד השמור ב-Cloudflare.
-
-Return URL ללקוח נבנה בהתאם לסוג העסקה:
+המערכת בונה כתובת במבנה:
 
 ```text
-https://dance.your-domain.co.il/payment/result?registration=...
-https://dance.your-domain.co.il/products/result?order=...
+https://YOUR-DOMAIN/api/public/payments/payme/callback?token=<SECRET>
 ```
 
-Return URL אינו מאשר תשלום. הוא רק מחזיר את הלקוח לאתר. האישור מגיע מה-Callback בלבד.
+אין לפרסם את הסוד ואין להכניסו ל־Git.
 
-## מעבר מ-Sandbox לייצור
+## בדיקת Sandbox חובה
 
-1. השאירו `PAYMENT_PROVIDER = "mock"` בזמן בדיקות מערכת ללא סליקה.
-2. עברו ל-`PAYMENT_PROVIDER = "payme"` ולכתובת Sandbox.
-3. בצעו תרחישי הצלחה, כישלון, סגירת דפדפן, Callback כפול וסכום שגוי.
-4. בקשו מ-PayMe לאשר את האינטגרציה ולמסור את כתובת ה-API לייצור.
-5. החליפו רק את `PAYME_API_BASE` ואת הסודות של סביבת הייצור.
-6. בצעו עסקה אמיתית בסכום נמוך ובדקו שההרשמה עוברת ל-`PAID` ושנוצר מסמך חשבונאי.
-7. בדקו החזר מלא וחלקי דרך תהליך התפעול שאושר מול PayMe.
-
-## אמצעי תשלום
-
-כאשר `PAYME_PAYMENT_METHOD` ריק, המערכת אינה כופה אמצעי תשלום אחד; דף PayMe מציג את האמצעים שהופעלו לחשבון. כפו ערך רק לאחר ש-PayMe מסרה את הערך המדויק הנדרש ל-API שלכם.
-
-## החזרים
-
-המערכת מנהלת בקשת החזר, סכום, סטטוס ו-Audit Log. החזר כספי אוטומטי מול PayMe לא הופעל בלי הרשאות ותיעוד API ספציפיים לחשבון. עד לקבלת פרטי Refund API מאושרים, יש לבצע את ההחזר ב-PayMe ולסגור אותו בממשק הניהול. אין לסמן החזר במסד לפני שההחזר בוצע בפועל אצל הסולק.
-
-## בדיקות חובה לפני מכירה
-
-- עסקה מוצלחת בכרטיס.
-- עסקה שנדחתה.
-- ביטול בדף התשלום.
-- סגירת הטלפון לפני החזרה לאתר.
-- Callback שמגיע לפני ה-Return URL ואחריו.
+- תשלום מוצלח.
+- תשלום שנדחה.
+- סגירת דף התשלום.
+- Callback לפני ואחרי Return URL.
 - Callback כפול.
-- סכום Callback שאינו תואם.
-- רכישת סדנה מלאה, מקדמה, יתרה, כרטיסייה ומנוי.
-- תצוגה ב-iPhone וב-Android ברוחב 320–430 פיקסלים.
-- שימוש מלא באמצעות מקלדת וקורא מסך בסיסי.
+- Callback עם Secret שגוי.
+- Callback עם סכום שגוי.
+- מקדמה ולאחר מכן יתרה.
+- החזר מלא.
+- החזר חלקי.
+- שני החזרים חלקיים על אותה עסקה.
+- ניסיון החזר שחורג מהיתרה.
+- Retry לאחר timeout.
+- Callback refund כפול.
+
+## מעבר לייצור
+
+1. החלף את `PAYME_API_BASE` לכתובת הייצור שקיבלת מ־PayMe.
+2. החלף את סודות Sandbox בסודות הייצור.
+3. פרוס מחדש.
+4. בצע עסקה אמיתית בסכום נמוך.
+5. בצע החזר אמיתי מלא או חלקי.
+6. פתח בממשק הניהול את "בדיקת מוכנות לייצור".
+7. ודא שאין חסימות `PAYME_SANDBOX_MODE_ACTIVE`, `PAYME_PAYMENT_FLOW_NOT_VERIFIED` או `PAYME_REFUND_FLOW_NOT_VERIFIED`.
+
+המערכת בכוונה אינה מאפשרת להסתפק ב־Build או ב־Mock כהוכחה שזרימת הכסף אמיתית.

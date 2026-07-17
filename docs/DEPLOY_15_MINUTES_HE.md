@@ -1,31 +1,30 @@
-# פריסה ראשונית — הוראות מדויקות
-
-המסמך מניח שיש ברשותך חשבונות Cloudflare ו-Neon. מצב התשלום הראשוני הוא `mock`; אין לעבור לגבייה אמיתית לפני השלמת רשימת ה-Go-Live.
+# פריסה ראשונית — גרסה 1.2.0
 
 ## 1. הכנת הקוד
 
 ```bash
-unzip eden-zino-dance-platform.zip
-cd eden-dance-platform
+unzip eden-zino-dance-p0-v1.2.0.zip
+cd eden-zino-dance-p0-v1.2.0
 npm ci
 npm run validate
+npx wrangler deploy --dry-run
 ```
 
 נדרש Node.js 22 ומעלה.
 
-## 2. יצירת מסד Neon
+## 2. Neon
 
-1. צור Project ו-Database ב-Neon.
-2. העתק Connection String עם SSL. בחיבור Serverless העדף כתובת pooled.
-3. הרץ את המיגרציות:
+1. צור Project ו־Database.
+2. העתק Connection String עם SSL, ועדיף pooled.
+3. הרץ ארבע מיגרציות:
 
 ```bash
 DATABASE_URL='postgresql://...' npm run migrate
 ```
 
-המיגרציות ניתנות להרצה חוזרת ואינן אמורות למחוק נתוני ייצור.
+כאשר השתמשת בעבר במחרוזת שהופיעה בקובץ `.env.example` הישן, סובב את סיסמת Neon לפני כל פריסה.
 
-## 3. Cloudflare ו-R2
+## 3. R2
 
 ```bash
 npx wrangler login
@@ -33,35 +32,80 @@ npx wrangler r2 bucket create eden-dance-media
 npx wrangler r2 bucket create eden-dance-media-preview
 ```
 
-ערוך `wrangler.toml` והחלף:
+עדכן את שמות הדליים ב־`wrangler.toml` כאשר בחרת שמות אחרים.
 
-- `name` — שם ה-Worker.
-- `PUBLIC_APP_URL` — כתובת האתר הסופית.
-- `EMAIL_FROM` — כתובת שולח מאומתת.
-- שמות דליי R2, אם בחרת שמות אחרים.
+## 4. Turnstile
 
-## 4. סודות
+צור Widget עבור הדומיין וה־localhost.
 
-צור ערכים אקראיים ארוכים ל-`SETUP_TOKEN` ול-`SESSION_SECRET` ושמור אותם במנהל סיסמאות.
+ב־`wrangler.toml`:
+
+```toml
+TURNSTILE_SITE_KEY = "PUBLIC_SITE_KEY"
+```
+
+כ־Secret:
+
+```bash
+npx wrangler secret put TURNSTILE_SECRET_KEY
+```
+
+## 5. Rate Limiting
+
+הקובץ כולל שני Bindings:
+
+- `PUBLIC_RATE_LIMITER` — 120 בקשות לדקה.
+- `AUTH_RATE_LIMITER` — 10 בקשות לדקה.
+
+`namespace_id` חייב להיות מספר ייחודי בחשבון. שנה את ערכי הדוגמה כאשר הם מתנגשים עם Worker אחר.
+
+## 6. סודות בסיסיים
 
 ```bash
 npx wrangler secret put DATABASE_URL
 npx wrangler secret put SETUP_TOKEN
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put CRON_SECRET
 ```
 
-רק לאחר חיבור השירותים החיצוניים:
+## 7. דוא״ל ו־OTP
+
+אמת דומיין ב־Resend, עדכן `EMAIL_FROM`, והגדר:
 
 ```bash
 npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put TRANZILA_TERMINAL
+```
+
+`ADMIN_EMAIL_OTP_REQUIRED = "true"` כבר מוגדר. בלי דוא״ל פעיל מנהלים לא יוכלו להשלים OTP בייצור.
+
+## 8. PayMe
+
+```bash
+npx wrangler secret put PAYME_SELLER_ID
+npx wrangler secret put PAYME_CLIENT_KEY
+npx wrangler secret put PAYME_CALLBACK_SECRET
+```
+
+בשלב בדיקה:
+
+```toml
+PAYMENT_PROVIDER = "payme"
+PAYME_API_BASE = "https://sandbox.payme.io/api"
+PAYME_REFUND_PATH = "refund-sale"
+```
+
+השלם את כל הבדיקות ב־`docs/PAYME_SETUP_HE.md` לפני מעבר לייצור.
+
+## 9. ספק חשבוניות ו־WhatsApp
+
+```bash
 npx wrangler secret put INVOICE_WEBHOOK_SECRET
 npx wrangler secret put WHATSAPP_WEBHOOK_SECRET
 ```
 
-כתובות Webhook שאינן סוד יכולות להיות משתני `[vars]`, אך ניתן לשמור גם אותן כסודות.
+הגדר את הכתובות כ־vars או secrets. בדוק שחתימת `X-Eden-Signature` מאומתת אצל המקבל.
 
-## 5. פריסה
+## 10. פריסה
 
 ```bash
 npm run deploy
@@ -75,70 +119,28 @@ https://YOUR-DOMAIN/
 https://YOUR-DOMAIN/admin
 ```
 
-## 6. הקמת מנהל ראשון
+## 11. הקמת OWNER
 
 1. פתח `/admin`.
 2. בחר הקמה ראשונית.
-3. הזן את `SETUP_TOKEN`.
-4. צור OWNER עם סיסמה ייחודית וחזקה.
-5. לאחר ההקמה, החלף את `SETUP_TOKEN` בערך חדש שאינו נשמר אצל משתמשים אחרים.
+3. הזן `SETUP_TOKEN`.
+4. צור OWNER עם סיסמה ייחודית של 12 תווים לפחות.
+5. ודא שקוד OTP מגיע בדוא״ל.
+6. החלף את `SETUP_TOKEN` לאחר ההקמה.
 
-## 7. הגדרות מתוך ממשק הניהול
+## 12. שער Go-Live
 
-לפני פרסום סדנה:
+בממשק: **הגדרות → בדיקת מוכנות לייצור**.
 
-1. הזן את פרטי העסק ופרטי הקשר.
-2. השלם ביוגרפיה, גישת הוראה ותמונות של עדן.
-3. החלף את כל המסמכים שמסומנים DRAFT.
-4. צור סדנת בדיקה עם מחיר של 1 ש"ח רק בסביבת סליקה מאושרת לבדיקה.
-5. בדוק הרשמה, תשלום, אישור, תזכורת, ביטול והחזר.
+אל תתחיל למכור עד שהשער מציג מוכנות. הוא בודק:
 
-## 8. מעבר מ-Mock לסליקה
+- פרטי עסק.
+- ארבעה מסמכים משפטיים מאושרים.
+- PayMe מחוץ ל־Sandbox.
+- עסקה והחזר מוצלחים.
+- דוא״ל.
+- Turnstile.
+- Rate Limiting.
+- OTP למנהלים.
 
-רק לאחר שקיבלת חשבון PayMe פעיל, מפתח מוכר, Client Key וסביבת API:
-
-```toml
-PAYMENT_PROVIDER = "payme"
-PAYME_API_BASE = "https://sandbox.payme.io/api"
-```
-
-לאחר השינוי:
-
-```bash
-npm run deploy
-```
-
-הגדר לפני הפריסה:
-
-```bash
-npx wrangler secret put PAYME_SELLER_ID
-npx wrangler secret put PAYME_CLIENT_KEY
-npx wrangler secret put PAYME_CALLBACK_SECRET
-```
-
-בצע לפחות את הבדיקות הבאות:
-
-- תשלום מוצלח.
-- תשלום שנכשל.
-- Callback כפול.
-- Callback עם Token שגוי.
-- Callback עם סכום שגוי.
-- סגירת חלון התשלום לפני חזרה לאתר.
-- מקדמה ולאחר מכן יתרה.
-- רכישת כרטיסייה.
-- החזר מלא וחלקי בתהליך הספק.
-
-## 9. GitHub Actions
-
-דחוף את התיקייה ל-Repository פרטי והוסף Secrets:
-
-```text
-CLOUDFLARE_API_TOKEN
-CLOUDFLARE_ACCOUNT_ID
-```
-
-ה-Workflow ב-`.github/workflows/deploy.yml` מריץ `npm ci`, את כל בדיקות האימות ורק לאחר מכן פריסה.
-
-## 10. דומיין
-
-חבר Custom Domain ל-Worker דרך Cloudflare. לאחר מכן עדכן את `PUBLIC_APP_URL`, פרוס שוב, ובדוק שכל קישורי התשלום, ההזמנות והתזכורות משתמשים בדומיין החדש.
+חשבוניות ו־WhatsApp מוצגים כאזהרות כאשר אינם מחוברים.

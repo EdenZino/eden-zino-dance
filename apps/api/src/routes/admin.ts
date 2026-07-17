@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { createSession, destroySession, requireAdmin, requireRole } from '../lib/auth';
-import { hashPassword, randomToken, verifyPassword } from '../lib/crypto';
+import { hashPassword, randomToken, sha256, verifyPassword } from '../lib/crypto';
+import { verifyTurnstile } from '../lib/turnstile';
+import { sendEmail } from '../services/notifications';
+import { cancelRefundAllocation, cancelRegistration, completeManualRefund, refundRegistration, retryRefund } from '../services/refunds';
 import type { AdminSession, Env } from '../types';
 
 type Vars = { admin: AdminSession };
@@ -21,14 +24,87 @@ admin.post('/bootstrap', async (c) => {
 });
 
 admin.post('/login', async (c) => {
-  const input = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(await c.req.json());
+  const input = z.object({ email: z.string().email(), password: z.string().min(1), turnstileToken: z.string().optional() }).parse(await c.req.json());
+  const challenge = await verifyTurnstile(c.env, input.turnstileToken, c.req.header('CF-Connecting-IP'), 'admin_login');
+  if (!challenge.success) return c.json({ error: 'HUMAN_VERIFICATION_FAILED' }, 400);
   const sql = db(c.env);
-  const found = await sql`select id,email,password_hash,display_name,role,is_active from admins where lower(email)=lower(${input.email}) limit 1`;
+  const found = await sql`select id,email,password_hash,display_name,role,is_active,failed_login_count,locked_until from admins where lower(email)=lower(${input.email}) limit 1`;
   const row = found[0] as any;
-  if (!row || !row.is_active || !(await verifyPassword(input.password, row.password_hash))) return c.json({ error: 'INVALID_CREDENTIALS' }, 401);
+  if (row?.locked_until && new Date(row.locked_until).getTime() > Date.now()) return c.json({ error: 'ACCOUNT_TEMPORARILY_LOCKED' }, 423);
+  const valid = Boolean(row?.is_active) && await verifyPassword(input.password, String(row?.password_hash ?? ''));
+  if (!valid) {
+    if (row) await sql`update admins set failed_login_count=failed_login_count+1,
+      locked_until=case when failed_login_count+1>=5 then now()+interval '15 minutes' else locked_until end,updated_at=now()
+      where id=${row.id}::uuid`;
+    return c.json({ error: 'INVALID_CREDENTIALS' }, 401);
+  }
+  await sql`update admins set failed_login_count=0,locked_until=null where id=${row.id}::uuid`;
+
+  const requireOtp = String(c.env.ADMIN_EMAIL_OTP_REQUIRED ?? 'true').toLowerCase() !== 'false';
+  if (requireOtp) {
+    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1_000_000).padStart(6, '0');
+    const codeHash = await sha256(`${code}:${c.env.SESSION_SECRET}:admin-otp`);
+    const rows = await sql`insert into admin_login_challenges(admin_id,code_hash,expires_at,ip_address)
+      values(${row.id}::uuid,${codeHash},now()+interval '10 minutes',${c.req.header('CF-Connecting-IP') ?? null}) returning id`;
+    const delivery = await sendEmail(c.env, { to: row.email, subject: 'קוד כניסה לממשק הניהול', html: `<div dir="rtl"><h2>קוד האימות שלך</h2><p style="font-size:30px;letter-spacing:6px"><b>${code}</b></p><p>הקוד תקף ל-10 דקות.</p></div>` });
+    if (delivery.outcome !== 'SENT') {
+      await sql`delete from admin_login_challenges where id=${String((rows[0] as any).id)}::uuid`;
+      return c.json({ error: delivery.error ?? 'ADMIN_OTP_DELIVERY_FAILED' }, 503);
+    }
+    return c.json({ mfaRequired: true, challengeId: String((rows[0] as any).id) });
+  }
+
   await sql`update admins set last_login_at=now() where id=${row.id}::uuid`;
   await createSession(c, row.id);
   return c.json({ admin: { id: row.id, email: row.email, displayName: row.display_name, role: row.role } });
+});
+
+admin.post('/login/verify', async (c) => {
+  const input = z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) }).parse(await c.req.json());
+  const codeHash = await sha256(`${input.code}:${c.env.SESSION_SECRET}:admin-otp`);
+  const sql = db(c.env);
+  const rows = await sql`select ch.id,ch.admin_id,ch.code_hash,ch.attempts,a.email,a.display_name,a.role,a.is_active
+    from admin_login_challenges ch join admins a on a.id=ch.admin_id
+    where ch.id=${input.challengeId}::uuid and ch.used_at is null and ch.expires_at>now() for update`;
+  const challenge = rows[0] as any;
+  if (!challenge || !challenge.is_active) return c.json({ error: 'INVALID_OR_EXPIRED_CODE' }, 401);
+  if (challenge.code_hash !== codeHash) {
+    await sql`update admin_login_challenges set attempts=attempts+1,used_at=case when attempts+1>=5 then now() else used_at end where id=${challenge.id}::uuid`;
+    return c.json({ error: 'INVALID_OR_EXPIRED_CODE' }, 401);
+  }
+  await sql`update admin_login_challenges set used_at=now() where id=${challenge.id}::uuid`;
+  await sql`update admins set last_login_at=now(),failed_login_count=0,locked_until=null where id=${challenge.admin_id}::uuid`;
+  await createSession(c, challenge.admin_id);
+  return c.json({ admin: { id: challenge.admin_id, email: challenge.email, displayName: challenge.display_name, role: challenge.role } });
+});
+
+admin.post('/password-reset/request', async (c) => {
+  const input = z.object({ email: z.string().email(), turnstileToken: z.string().optional() }).parse(await c.req.json());
+  const human = await verifyTurnstile(c.env, input.turnstileToken, c.req.header('CF-Connecting-IP'), 'admin_reset');
+  if (!human.success) return c.json({ error: 'HUMAN_VERIFICATION_FAILED' }, 400);
+  const sql = db(c.env);
+  const admins = await sql`select id,email from admins where lower(email)=lower(${input.email}) and is_active=true limit 1`;
+  if (admins.length) {
+    const row = admins[0] as any; const token = randomToken(36); const tokenHash = await sha256(`${token}:${c.env.SESSION_SECRET}:admin-reset`);
+    await sql`delete from admin_password_reset_tokens where admin_id=${row.id}::uuid and used_at is null`;
+    await sql`insert into admin_password_reset_tokens(admin_id,token_hash,expires_at,requested_ip) values(${row.id}::uuid,${tokenHash},now()+interval '30 minutes',${c.req.header('CF-Connecting-IP') ?? null})`;
+    const url = `${c.env.PUBLIC_APP_URL.replace(/\/$/, '')}/admin?reset=${encodeURIComponent(token)}`;
+    const delivery = await sendEmail(c.env, { to: row.email, subject: 'איפוס סיסמה — Eden Zino Dance', html: `<div dir="rtl"><h2>איפוס סיסמה</h2><p><a href="${url}">לחצי כאן לבחירת סיסמה חדשה</a></p><p>הקישור תקף ל-30 דקות.</p></div>` });
+    if (delivery.outcome === 'CONFIGURATION_ERROR') return c.json({ error: 'EMAIL_PROVIDER_NOT_CONFIGURED' }, 503);
+  }
+  return c.json({ ok: true }, 202);
+});
+
+admin.post('/password-reset/confirm', async (c) => {
+  const input = z.object({ token: z.string().min(20), password: z.string().min(12) }).parse(await c.req.json());
+  const tokenHash = await sha256(`${input.token}:${c.env.SESSION_SECRET}:admin-reset`);
+  const sql = db(c.env);
+  const rows = await sql`update admin_password_reset_tokens set used_at=now() where token_hash=${tokenHash} and used_at is null and expires_at>now() returning admin_id`;
+  if (!rows.length) return c.json({ error: 'INVALID_OR_EXPIRED_LINK' }, 401);
+  const adminId = String((rows[0] as any).admin_id); const passwordHash = await hashPassword(input.password);
+  await sql`update admins set password_hash=${passwordHash},password_changed_at=now(),failed_login_count=0,locked_until=null,updated_at=now() where id=${adminId}::uuid`;
+  await sql`delete from admin_sessions where admin_id=${adminId}::uuid`;
+  return c.json({ ok: true });
 });
 
 admin.post('/logout', async (c) => {
@@ -177,41 +253,66 @@ admin.post('/registrations/:id/checkin', requireRole('OWNER','ADMIN','INSTRUCTOR
 });
 
 admin.post('/registrations/:id/cancel', requireRole('OWNER','ADMIN'), async (c) => {
-  const id = c.req.param('id'); const input = z.object({ reason: z.string().min(2) }).parse(await c.req.json()); const actor = c.get('admin');
-  await db(c.env)`update registrations set status='CANCELLED',notes=concat(notes,E'\nביטול: ',${input.reason}),updated_at=now() where id=${id}::uuid`;
-  await db(c.env)`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value) values(${actor.adminId}::uuid,'CANCEL','REGISTRATION',${id},${JSON.stringify(input)}::jsonb)`;
-  return c.json({ ok: true });
+  const input = z.object({ reason: z.string().min(2) }).parse(await c.req.json());
+  const id = c.req.param('id');
+  const actor = c.get('admin');
+  if (!id || !actor) return c.json({ error: 'UNAUTHORIZED' }, 401);
+  try {
+    const result = await cancelRegistration(c.env, id, input.reason, actor.adminId);
+    return c.json({ ok: true, result });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'CANCELLATION_FAILED' }, 409);
+  }
 });
 
 admin.post('/registrations/:id/refund', requireRole('OWNER'), async (c) => {
-  const id = c.req.param('id'); const input = z.object({ amountAgorot: z.number().int().positive(), reason: z.string().min(2) }).parse(await c.req.json()); const actor = c.get('admin'); const sql = db(c.env);
-  const paid = await sql`select amount_paid_agorot from registrations where id=${id}::uuid`;
-  if (!paid.length || input.amountAgorot > Number((paid[0] as any).amount_paid_agorot)) return c.json({ error: 'INVALID_REFUND_AMOUNT' }, 400);
-  const refund = await sql`insert into refunds(registration_id,amount_agorot,reason,status,requested_by) values(${id}::uuid,${input.amountAgorot},${input.reason},'MANUAL_ACTION_REQUIRED',${actor.adminId}::uuid) returning *`;
-  await sql`update registrations set status='REFUND_PENDING',updated_at=now() where id=${id}::uuid`;
-  return c.json({ refund: refund[0], note: 'Complete the refund in the payment provider and mark it completed.' }, 201);
+  const input = z.object({ amountAgorot: z.number().int().positive(), reason: z.string().min(2) }).parse(await c.req.json());
+  const id = c.req.param('id');
+  const actor = c.get('admin');
+  if (!id || !actor) return c.json({ error: 'UNAUTHORIZED' }, 401);
+  try {
+    const result = await refundRegistration(c.env, id, input.amountAgorot, input.reason, actor.adminId, false);
+    return c.json({ result }, 201);
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'REFUND_FAILED' }, 409);
+  }
 });
 
 admin.post('/refunds/:id/complete', requireRole('OWNER'), async (c) => {
-  const id = c.req.param('id'); const input = z.object({ providerRefundId: z.string().optional() }).parse(await c.req.json()); const sql = db(c.env);
-  const refs = await sql`update refunds set status='SUCCEEDED',provider_refund_id=${input.providerRefundId ?? null},completed_at=now() where id=${id}::uuid returning registration_id,amount_agorot`;
-  if (!refs.length) return c.json({ error: 'NOT_FOUND' }, 404);
-  const ref = refs[0] as any;
-  const sums = await sql`select r.amount_paid_agorot,coalesce(sum(f.amount_agorot) filter(where f.status='SUCCEEDED'),0)::int refunded from registrations r left join refunds f on f.registration_id=r.id where r.id=${ref.registration_id}::uuid group by r.id`;
-  const s = sums[0] as any; const status = Number(s.refunded) >= Number(s.amount_paid_agorot) ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
-  await sql`update registrations set status=${status},updated_at=now() where id=${ref.registration_id}::uuid`;
-  return c.json({ ok: true, status });
+  const input = z.object({ providerRefundId: z.string().optional() }).parse(await c.req.json());
+  const id = c.req.param('id');
+  if (!id) return c.json({ error: 'NOT_FOUND' }, 404);
+  try { return c.json({ ok: true, state: await completeManualRefund(c.env, id, input.providerRefundId) }); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : 'REFUND_COMPLETION_FAILED' }, 409); }
+});
+
+admin.post('/refunds/:id/retry', requireRole('OWNER'), async (c) => {
+  const id = c.req.param('id');
+  if (!id) return c.json({ error: 'NOT_FOUND' }, 404);
+  try { return c.json({ ok: true, result: await retryRefund(c.env, id) }); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : 'REFUND_RETRY_FAILED' }, 409); }
+});
+
+admin.post('/refunds/:id/cancel-allocation', requireRole('OWNER'), async (c) => {
+  const id = c.req.param('id');
+  const actor = c.get('admin');
+  const input = z.object({ reason: z.string().min(3).max(1000) }).parse(await c.req.json());
+  if (!id || !actor) return c.json({ error: 'UNAUTHORIZED' }, 401);
+  try { return c.json({ ok: true, result: await cancelRefundAllocation(c.env, id, input.reason, actor.adminId) }); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : 'REFUND_ALLOCATION_CANCEL_FAILED' }, 409); }
 });
 
 admin.post('/registrations/:id/transfer', requireRole('OWNER','ADMIN'), async (c) => {
-  const id = c.req.param('id'); const input = z.object({ targetWorkshopId: z.string().uuid() }).parse(await c.req.json()); const sql = db(c.env);
-  const reg = await sql`select * from registrations where id=${id}::uuid for update`;
-  if (!reg.length) return c.json({ error: 'NOT_FOUND' }, 404);
-  const availability = await sql`select w.id,w.allow_transfers,a.available from workshops w join workshop_availability a on a.id=w.id where w.id=${input.targetWorkshopId}::uuid`;
-  const target = availability[0] as any;
-  if (!target || !target.allow_transfers || Number(target.available) < Number((reg[0] as any).participant_count)) return c.json({ error: 'TARGET_NOT_AVAILABLE' }, 409);
-  await sql`update registrations set workshop_id=${input.targetWorkshopId}::uuid,updated_at=now() where id=${id}::uuid`;
-  return c.json({ ok: true });
+  const input = z.object({ targetWorkshopId: z.string().uuid() }).parse(await c.req.json());
+  const sql = db(c.env);
+  try {
+    const rows = await sql`select * from transfer_registration_atomic(${c.req.param('id')}::uuid,${input.targetWorkshopId}::uuid,${c.get('admin').adminId}::uuid)`;
+    const result = rows[0] as any;
+    if (result?.source_workshop_id) await sql`select * from invite_next_waitlist(${result.source_workshop_id}::uuid,${randomToken(32)},24)`;
+    return c.json({ ok: true, transfer: result });
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'TRANSFER_FAILED' }, 409);
+  }
 });
 
 admin.get('/waitlist', async (c) => {
@@ -221,8 +322,9 @@ admin.get('/waitlist', async (c) => {
 
 admin.post('/waitlist/:id/invite', requireRole('OWNER','ADMIN'), async (c) => {
   const id = c.req.param('id'); const token = randomToken(32); const sql = db(c.env);
-  const row = await sql`update waitlist_entries set status='INVITED',invite_token=${token},invited_at=now(),invite_expires_at=now()+interval '24 hours' where id=${id}::uuid returning *`;
-  if (!row.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const row = await sql`update waitlist_entries set status='INVITED',invite_token=${token},invited_at=now(),invite_expires_at=now()+interval '24 hours' where id=${id}::uuid and status in ('WAITING','EXPIRED') returning *`;
+  if (!row.length) return c.json({ error: 'NOT_FOUND_OR_NOT_INVITABLE' }, 404);
+  await sql`insert into notification_jobs(waitlist_entry_id,channel,template_key,payload) values(${id}::uuid,'EMAIL','WAITLIST_INVITE',${JSON.stringify({waitlistEntryId:id,inviteToken:token})}::jsonb)`;
   return c.json({ entry: row[0], inviteUrl: `${c.env.PUBLIC_APP_URL}/waitlist/${token}` });
 });
 
@@ -318,7 +420,7 @@ admin.post('/legal', requireRole('OWNER','ADMIN'), async (c) => {
   const input=z.object({type:z.enum(['TERMS','PRIVACY','CANCELLATION','ACCESSIBILITY']),version:z.string().min(1),title:z.string().min(2),content:z.string().min(10),isActive:z.boolean().default(false)}).parse(await c.req.json());
   const sql=db(c.env);
   if(input.isActive) await sql`update legal_documents set is_active=false where type=${input.type}`;
-  const row=await sql`insert into legal_documents(type,version,title,content,is_active,published_at) values(${input.type},${input.version},${input.title},${input.content},${input.isActive},case when ${input.isActive} then now() else null end) returning *`;
+  const row=await sql`insert into legal_documents(type,version,title,content,is_active,published_at,approved_at,approved_by,approval_note) values(${input.type},${input.version},${input.title},${input.content},false,null,null,null,'') returning *`;
   return c.json({document:row[0]},201);
 });
 admin.put('/legal/:id', requireRole('OWNER','ADMIN'), async (c) => {
@@ -327,8 +429,23 @@ admin.put('/legal/:id', requireRole('OWNER','ADMIN'), async (c) => {
   const sql=db(c.env);const current=await sql`select type from legal_documents where id=${id}::uuid`;
   if(!current.length)return c.json({error:'NOT_FOUND'},404);
   if(input.isActive) await sql`update legal_documents set is_active=false where type=${(current[0] as any).type}`;
-  const row=await sql`update legal_documents set title=${input.title},content=${input.content},is_active=${input.isActive},published_at=case when ${input.isActive} then coalesce(published_at,now()) else published_at end where id=${id}::uuid returning *`;
+  const row=await sql`update legal_documents set title=${input.title},content=${input.content},is_active=false,published_at=null,approved_at=null,approved_by=null,approval_note='' where id=${id}::uuid returning *`;
   return c.json({document:row[0]});
+});
+
+admin.post('/legal/:id/approve', requireRole('OWNER'), async (c) => {
+  const id=c.req.param('id');
+  const actor=c.get('admin');
+  const input=z.object({ approvalNote:z.string().min(3).max(2000), confirmLegalReview:z.literal(true) }).parse(await c.req.json());
+  if(!id||!actor)return c.json({error:'UNAUTHORIZED'},401);
+  const sql=db(c.env);const current=await sql`select id,type,version,title,content from legal_documents where id=${id}::uuid`;
+  if(!current.length)return c.json({error:'NOT_FOUND'},404);
+  const doc=current[0] as any;
+  if(String(doc.version).toUpperCase().includes('DRAFT')||String(doc.content).includes('השלימ')) return c.json({error:'DRAFT_DOCUMENT_CANNOT_BE_APPROVED'},409);
+  await sql`update legal_documents set is_active=false where type=${doc.type}`;
+  const rows=await sql`update legal_documents set is_active=true,published_at=now(),approved_at=now(),approved_by=${actor.adminId}::uuid,approval_note=${input.approvalNote} where id=${id}::uuid returning *`;
+  await sql`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value) values(${actor.adminId}::uuid,'APPROVE','LEGAL_DOCUMENT',${id},${JSON.stringify({type:doc.type,version:doc.version,note:input.approvalNote})}::jsonb)`;
+  return c.json({document:rows[0]});
 });
 
 admin.get('/audit', requireRole('OWNER'), async (c) => c.json({ logs: await db(c.env)`select l.*,a.email admin_email from audit_logs l left join admins a on a.id=l.admin_id order by l.created_at desc limit 500` }));
@@ -362,16 +479,70 @@ admin.post('/series/:id/generate', requireRole('OWNER','ADMIN'), async (c) => {
 });
 
 admin.get('/operations/requests', requireRole('OWNER','ADMIN'), async (c) => {
-  const sql=db(c.env);const [cancellations,privacy]=await Promise.all([
+  const sql=db(c.env);const [cancellations,privacy,notifications,refunds]=await Promise.all([
     sql`select cr.*,r.registration_code,r.first_name,r.last_name,w.title,w.starts_at from cancellation_requests cr join registrations r on r.id=cr.registration_id join workshops w on w.id=r.workshop_id order by cr.created_at desc`,
     sql`select * from privacy_requests order by created_at desc`,
-  ]);return c.json({cancellations,privacy});
+    sql`select j.id,j.channel,j.template_key,j.status,j.attempts,j.last_error,j.processed_at,j.created_at,r.registration_code,o.order_code
+      from notification_jobs j left join registrations r on r.id=j.registration_id left join commerce_orders o on o.id=j.order_id
+      where j.status in ('FAILED','CONFIGURATION_ERROR','SKIPPED') order by j.created_at desc limit 200`,
+    sql`select f.*,r.registration_code,p.provider,p.provider_session_id from refunds f join registrations r on r.id=f.registration_id left join payments p on p.id=f.payment_id order by f.requested_at desc limit 200`,
+  ]);return c.json({cancellations,privacy,notifications,refunds});
 });
 
 admin.patch('/operations/cancellations/:id', requireRole('OWNER','ADMIN'), async (c) => {
   const input=z.object({status:z.enum(['OPEN','APPROVED','REJECTED','COMPLETED']),adminNotes:z.string().max(3000).default('')}).parse(await c.req.json());
-  const rows=await db(c.env)`update cancellation_requests set status=${input.status},admin_notes=${input.adminNotes},resolved_at=case when ${input.status} in ('REJECTED','COMPLETED') then now() else null end where id=${c.req.param('id')}::uuid returning *`;
-  if(!rows.length)return c.json({error:'NOT_FOUND'},404);return c.json({request:rows[0]});
+  const sql=db(c.env);
+  const requests=await sql`select * from cancellation_requests where id=${c.req.param('id')}::uuid`;
+  const request=requests[0] as any;if(!request)return c.json({error:'NOT_FOUND'},404);
+  if(input.status==='APPROVED'){
+    try{
+      const result=await cancelRegistration(c.env,String(request.registration_id),request.reason,c.get('admin').adminId);
+      const completed=['CANCELLED','REFUNDED'].includes(String(result.cancellation.finalStatus));
+      const nextStatus=completed?'COMPLETED':'APPROVED';
+      const note=completed?input.adminNotes:`${input.adminNotes} — ההחזר עדיין דורש השלמה או אימות מול ספק הסליקה`;
+      const rows=await sql`update cancellation_requests set status=${nextStatus},admin_notes=${note},resolved_at=case when ${completed} then now() else null end where id=${request.id}::uuid returning *`;
+      return c.json({request:rows[0],result});
+    }catch(error){return c.json({error:error instanceof Error?error.message:'CANCELLATION_FAILED'},409);}
+  }
+  const rows=await sql`update cancellation_requests set status=${input.status},admin_notes=${input.adminNotes},resolved_at=case when ${input.status} in ('REJECTED','COMPLETED') then now() else null end where id=${request.id}::uuid returning *`;
+  return c.json({request:rows[0]});
+});
+
+admin.post('/operations/notifications/:id/retry', requireRole('OWNER','ADMIN'), async (c) => {
+  const rows=await db(c.env)`update notification_jobs set status='PENDING',attempts=0,last_error=null,provider_response='{}'::jsonb,scheduled_at=now(),processed_at=null where id=${c.req.param('id')}::uuid returning id`;
+  if(!rows.length)return c.json({error:'NOT_FOUND'},404);return c.json({ok:true});
+});
+
+admin.get('/production-readiness', requireRole('OWNER'), async (c) => {
+  const sql=db(c.env);
+  const activeProviderEnvironment=c.env.PAYMENT_PROVIDER==='mock'?'mock':c.env.PAYMENT_PROVIDER==='payme'&&String(c.env.PAYME_API_BASE??'').toLowerCase().includes('sandbox')?'sandbox':'production';
+  const [settings,legal,paymeChecks]=await Promise.all([
+    sql`select * from business_settings where singleton=true`,
+    sql`select type,version,title,content,approved_at,approved_by,approval_note from legal_documents where is_active=true`,
+    sql`select
+      count(distinct p.id) filter(where p.provider='payme' and p.provider_environment=${activeProviderEnvironment} and p.status in ('SUCCEEDED','PARTIALLY_REFUNDED','REFUNDED'))::int successful_payments,
+      count(distinct f.id) filter(where p.provider='payme' and p.provider_environment=${activeProviderEnvironment} and f.provider_environment=${activeProviderEnvironment} and f.status='SUCCEEDED')::int successful_refunds
+      from payments p left join refunds f on f.payment_id=p.id`,
+  ]);
+  const business=(settings[0]??{}) as any;const docs=legal as any[];const providerChecks=(paymeChecks[0]??{}) as any;
+  const blockers:string[]=[];const warnings:string[]=[];
+  if(!business.legal_business_name||!business.business_number||!business.contact_email||!business.contact_phone) blockers.push('BUSINESS_DETAILS_INCOMPLETE');
+  for(const type of ['TERMS','PRIVACY','CANCELLATION','ACCESSIBILITY']){
+    const doc=docs.find((d:any)=>d.type===type);if(!doc||!doc.approved_at||String(doc.version).includes('DRAFT')||String(doc.content).includes('השלימ')) blockers.push(`LEGAL_${type}_NOT_APPROVED`);
+  }
+  if(c.env.PAYMENT_PROVIDER==='payme'){
+    if(!c.env.PAYME_SELLER_ID||!c.env.PAYME_CLIENT_KEY||!c.env.PAYME_CALLBACK_SECRET) blockers.push('PAYME_CONFIGURATION_INCOMPLETE');
+    if(String(c.env.PAYME_API_BASE??'').toLowerCase().includes('sandbox')) blockers.push('PAYME_SANDBOX_MODE_ACTIVE');
+    if(Number(providerChecks.successful_payments)<1) blockers.push('PAYME_PAYMENT_FLOW_NOT_VERIFIED');
+    if(Number(providerChecks.successful_refunds)<1) blockers.push('PAYME_REFUND_FLOW_NOT_VERIFIED');
+  }
+  if(!c.env.RESEND_API_KEY||!c.env.EMAIL_FROM) blockers.push('EMAIL_CONFIGURATION_INCOMPLETE');
+  if(!c.env.PUBLIC_RATE_LIMITER||!c.env.AUTH_RATE_LIMITER) blockers.push('CLOUDFLARE_RATE_LIMIT_BINDINGS_MISSING');
+  if(!c.env.TURNSTILE_SECRET_KEY||!c.env.TURNSTILE_SITE_KEY) blockers.push('TURNSTILE_NOT_CONFIGURED');
+  if(String(c.env.ADMIN_EMAIL_OTP_REQUIRED??'true').toLowerCase()==='false') blockers.push('ADMIN_MFA_DISABLED');
+  if(!c.env.INVOICE_WEBHOOK_URL) warnings.push('INVOICE_PROVIDER_NOT_CONFIGURED');
+  if(!c.env.WHATSAPP_WEBHOOK_URL) warnings.push('WHATSAPP_PROVIDER_NOT_CONFIGURED');
+  return c.json({ready:blockers.length===0,blockers,warnings,checks:{paymentProvider:c.env.PAYMENT_PROVIDER,refundPath:c.env.PAYME_REFUND_PATH??'refund-sale',activeLegalDocuments:docs.map((d:any)=>({type:d.type,version:d.version,approvedAt:d.approved_at})),paymeVerification:{environment:activeProviderEnvironment,successfulPayments:Number(providerChecks.successful_payments||0),successfulRefunds:Number(providerChecks.successful_refunds||0),sandbox:String(c.env.PAYME_API_BASE??'').toLowerCase().includes('sandbox')}}});
 });
 
 admin.patch('/operations/privacy/:id', requireRole('OWNER'), async (c) => {

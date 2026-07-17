@@ -13,6 +13,8 @@ export function HomePage() {
   if (site.error || workshops.error) return <ErrorBox error={site.error || workshops.error}/>;
   const home = site.data?.content.home || {};
   const instructor = site.data?.content.instructor || {};
+  const heroImg = home.heroImage || '/images/hero.jpg';
+  const portraitImg = instructor.portraitUrl || '/images/instructor.jpg';
   return <>
     {home.announcement && <div className="announcement">{home.announcement}</div>}
     <section className="hero section-pad">
@@ -23,8 +25,8 @@ export function HomePage() {
         <div className="hero-actions"><Link className="button primary" to="/workshops">{home.ctaPrimary || 'לסדנאות הקרובות'} <ArrowLeft/></Link><Link className="button ghost" to="/workshops#code">{home.ctaSecondary || 'יש לי קוד סדנה'}</Link></div>
         <div className="trust-row"><span><ShieldCheck/> תשלום מאובטח</span><span><TicketCheck/> אישור מיידי</span><span><Users/> קבוצות מוגבלות</span></div>
       </div>
-      <div className="hero-visual" style={home.heroImage ? { backgroundImage: `url(${home.heroImage})` } : undefined}>
-        {!home.heroImage && <><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="dance-letter">E</div><div className="vertical-copy">EDEN ZINO · DANCE WORKSHOPS</div></>}
+      <div className="hero-visual" style={{ backgroundImage: `url(${heroImg})` }}>
+        <div className="vertical-copy">EDEN ZINO · DANCE WORKSHOPS</div>
       </div>
     </section>
 
@@ -35,10 +37,18 @@ export function HomePage() {
       <div className="center-action"><Link className="button light" to="/workshops">לכל הסדנאות <ArrowLeft/></Link></div>
     </section>
 
-    <section className="section-pad instructor-section">
-      <div className="portrait-panel" style={instructor.portraitUrl ? { backgroundImage: `url(${instructor.portraitUrl})` } : undefined}>
-        {!instructor.portraitUrl && <div className="portrait-placeholder"><span>EZ</span><small>העלי תמונת תדמית דרך הניהול</small></div>}
+    <section className="section-pad studio-gallery">
+      <div className="section-heading"><span className="eyebrow">INSIDE THE STUDIO</span><h2>רגעים מהרחבה</h2><p>קצת מהאנרגיה, מהתנועה ומהקהילה שנוצרת בכל סדנה.</p></div>
+      <div className="gallery-grid">
+        <figure className="gallery-a" style={{ backgroundImage: 'url(/images/gallery-1.jpg)' }}/>
+        <figure className="gallery-b" style={{ backgroundImage: 'url(/images/gallery-2.jpg)' }}/>
+        <figure className="gallery-c" style={{ backgroundImage: 'url(/images/gallery-3.jpg)' }}/>
+        <figure className="gallery-d" style={{ backgroundImage: 'url(/images/gallery-4.jpg)' }}/>
       </div>
+    </section>
+
+    <section className="section-pad instructor-section">
+      <div className="portrait-panel" style={{ backgroundImage: `url(${portraitImg})` }}/>
       <div className="instructor-copy"><span className="eyebrow">MEET YOUR INSTRUCTOR</span><h2>{instructor.name || 'עדן זינו'}</h2><h3>{instructor.headline || 'מדריכה, יוצרת ורקדנית'}</h3><p>{instructor.bio || 'הוסיפי כאן דרך ממשק הניהול את הרקע המקצועי והאישי של עדן.'}</p><blockquote>{instructor.teachingApproach || 'הוסיפי כאן את שיטת הלימוד, הערכים והחוויה שהתלמידים מקבלים.'}</blockquote><a className="button outline" href={instructor.instagramUrl || 'https://www.instagram.com/eden_zinooo/?hl=en'} target="_blank" rel="noreferrer"><Camera/> Instagram</a></div>
     </section>
 

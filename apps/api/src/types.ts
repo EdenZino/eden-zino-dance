@@ -13,6 +13,7 @@ export interface Env {
   PAYME_CALLBACK_SECRET?: string;
   PAYME_LANGUAGE?: string;
   PAYME_PAYMENT_METHOD?: string;
+  PAYME_REFUND_PATH?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   INVOICE_WEBHOOK_URL?: string;
@@ -20,6 +21,11 @@ export interface Env {
   WHATSAPP_WEBHOOK_URL?: string;
   WHATSAPP_WEBHOOK_SECRET?: string;
   CRON_SECRET?: string;
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET_KEY?: string;
+  ADMIN_EMAIL_OTP_REQUIRED?: string;
+  PUBLIC_RATE_LIMITER?: RateLimit;
+  AUTH_RATE_LIMITER?: RateLimit;
   MEDIA: R2Bucket;
   ASSETS: Fetcher;
 }

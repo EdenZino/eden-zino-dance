@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 
 const db = new PGlite();
-for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql']) {
+for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql']) {
   let sql = await fs.readFile(file, 'utf8');
   // PGlite includes gen_random_uuid but does not package the pgcrypto extension.
   sql = sql.replace(/create extension if not exists pgcrypto;?/ig, '');
@@ -46,6 +46,60 @@ console.log('✓ pass purchase and entitlement issuance');
 const duplicate = await db.query("select * from confirm_checkout_payment($1,'tx-order',40000,'OK','mock','{}'::jsonb)", [orderPayment.id]);
 if (duplicate.rows[0].entity_status !== 'PAID') throw new Error('idempotency failed');
 console.log('✓ duplicate payment notification is idempotent');
+
+// P0: secure access and administrator hardening schema.
+const securityTables = (await db.query("select count(*)::int count from information_schema.tables where table_schema='public' and table_name in ('admin_password_reset_tokens','admin_login_challenges','customer_magic_tokens','customer_sessions')")).rows[0].count;
+if (securityTables !== 4) throw new Error('security tables missing');
+const legalColumns = (await db.query("select count(*)::int count from information_schema.columns where table_name='legal_documents' and column_name in ('approved_at','approved_by','approval_note')")).rows[0].count;
+if (legalColumns !== 3) throw new Error('legal approval fields missing');
+const environmentColumns = (await db.query("select count(*)::int count from information_schema.columns where (table_name='payments' and column_name='provider_environment') or (table_name='refunds' and column_name='provider_environment')")).rows[0].count;
+if (environmentColumns !== 2) throw new Error('provider environment fields missing');
+console.log('✓ secure portal, password reset, MFA and legal approval schema');
+
+// P0: truthful notification status must not masquerade as sent.
+await db.query("insert into notification_jobs(registration_id,channel,template_key,status,last_error) values($1,'EMAIL','TEST_CONFIGURATION','CONFIGURATION_ERROR','EMAIL_PROVIDER_NOT_CONFIGURED')", [reserve.registration_id]);
+const notificationState = (await db.query("select status from notification_jobs where template_key='TEST_CONFIGURATION'")).rows[0].status;
+if (notificationState !== 'CONFIGURATION_ERROR') throw new Error('notification delivery state failed');
+console.log('✓ notification configuration failures remain visible');
+
+// P0: waitlist invitations reserve their offered capacity and cannot over-invite.
+const workshopId = (await db.query("select id from workshops where public_code='EZTEST'")).rows[0].id;
+await db.query("insert into waitlist_entries(workshop_id,first_name,last_name,email,phone,participant_count) values($1,'Next','Dancer','next@example.com','0501111111',1)", [workshopId]);
+const cancelState = (await db.query("select * from cancel_registration_atomic($1,'Customer cancellation',$2)", [reserve.registration_id, admin.id])).rows[0];
+if (cancelState.registration_status !== 'REFUND_PENDING' || cancelState.refundable_agorot !== 10000) throw new Error('atomic cancellation failed');
+const allocation = (await db.query("select * from allocate_registration_refund($1,10000,'Customer cancellation',$2,true)", [reserve.registration_id, admin.id])).rows;
+if (allocation.length !== 2 || allocation.reduce((sum,row)=>sum+row.amount_agorot,0) !== 10000) throw new Error('atomic refund allocation failed');
+let duplicateAllocationError='';
+try { await db.query("select * from allocate_registration_refund($1,1,'duplicate',$2,true)", [reserve.registration_id, admin.id]); } catch (error) { duplicateAllocationError=error.message; }
+if (!duplicateAllocationError.includes('INVALID_REFUND_AMOUNT')) throw new Error('duplicate refund allocation protection failed');
+const firstRefund = (await db.query("select * from complete_refund_atomic($1,'refund-part-1','{}'::jsonb)", [allocation[0].refund_id])).rows[0];
+if (firstRefund.registration_status !== 'REFUND_PENDING') throw new Error('split refund prematurely closed cancellation');
+const finalRefund = (await db.query("select * from complete_refund_atomic($1,'refund-part-2','{}'::jsonb)", [allocation[1].refund_id])).rows[0];
+if (finalRefund.registration_status !== 'CANCELLED' || finalRefund.refunded_total !== 10000) throw new Error('refund completion failed');
+const repeatCompletion = (await db.query("select * from complete_refund_atomic($1,'refund-part-2','{}'::jsonb)", [allocation[1].refund_id])).rows[0];
+if (repeatCompletion.refunded_total !== 10000) throw new Error('refund completion idempotency failed');
+const invitation = (await db.query("select * from invite_next_waitlist($1,'invite-token-1',24)", [workshopId])).rows;
+if (invitation.length !== 1) throw new Error('waitlist invitation failed');
+const duplicateInvitation = (await db.query("select * from invite_next_waitlist($1,'invite-token-2',24)", [workshopId])).rows;
+if (duplicateInvitation.length !== 0) throw new Error('waitlist over-invitation protection failed');
+console.log('✓ atomic cancellation, split refund, idempotency and waitlist capacity hold');
+
+// P0: transfers lock capacity and reject silent price changes.
+const sourceWorkshop = (await db.query(`insert into workshops(public_code,slug,title,starts_at,ends_at,capacity,max_participants_per_order,max_registrations_per_phone,price_agorot,status,terms_version,privacy_version,cancellation_policy_version,created_by)
+  values('EZSRC','source-workshop','Source',now()+interval '10 day',now()+interval '10 day 2 hour',2,2,2,10000,'PUBLISHED','DRAFT-1','DRAFT-1','DRAFT-1',$1) returning id`, [admin.id])).rows[0];
+const targetWorkshop = (await db.query(`insert into workshops(public_code,slug,title,starts_at,ends_at,capacity,max_participants_per_order,max_registrations_per_phone,price_agorot,status,terms_version,privacy_version,cancellation_policy_version,created_by)
+  values('EZTGT','target-workshop','Target',now()+interval '11 day',now()+interval '11 day 2 hour',1,2,2,10000,'PUBLISHED','DRAFT-1','DRAFT-1','DRAFT-1',$1) returning id`, [admin.id])).rows[0];
+const expensiveWorkshop = (await db.query(`insert into workshops(public_code,slug,title,starts_at,ends_at,capacity,max_participants_per_order,max_registrations_per_phone,price_agorot,status,terms_version,privacy_version,cancellation_policy_version,created_by)
+  values('EZEXP','expensive-workshop','Expensive',now()+interval '12 day',now()+interval '12 day 2 hour',2,2,2,12000,'PUBLISHED','DRAFT-1','DRAFT-1','DRAFT-1',$1) returning id`, [admin.id])).rows[0];
+const transferReg = (await db.query(`select * from reserve_registration('EZSRC','Move','Me','move@example.com','0502222222','','[{"firstName":"Move","lastName":"Me"}]'::jsonb,null,false,'{}'::jsonb,'{}'::jsonb,'DRAFT-1','DRAFT-1','DRAFT-1','FULL',null,null,null)`)).rows[0];
+const transferPayment = (await db.query("insert into payments(registration_id,provider,status,amount_agorot,checkout_code,purpose) values($1,'mock','CREATED',10000,'transfer-checkout','WORKSHOP_FULL') returning id", [transferReg.registration_id])).rows[0];
+await db.query("select * from confirm_checkout_payment($1,'tx-transfer',10000,'OK','mock','{}'::jsonb)", [transferPayment.id]);
+const transfer = (await db.query("select * from transfer_registration_atomic($1,$2,$3)", [transferReg.registration_id,targetWorkshop.id,admin.id])).rows[0];
+if (transfer.target_workshop_id !== targetWorkshop.id) throw new Error('atomic transfer failed');
+let priceError='';
+try { await db.query("select * from transfer_registration_atomic($1,$2,$3)", [transferReg.registration_id,expensiveWorkshop.id,admin.id]); } catch (error) { priceError=error.message; }
+if (!priceError.includes('TRANSFER_PRICE_MISMATCH')) throw new Error('transfer price protection failed');
+console.log('✓ atomic transfer capacity and price protection');
 
 const count = (await db.query("select count(*)::int count from information_schema.tables where table_schema='public'")).rows[0].count;
 console.log(`✓ database schema loaded (${count} public tables)`);

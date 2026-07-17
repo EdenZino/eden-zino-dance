@@ -9,16 +9,44 @@ import type { Env } from './types';
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', logger());
 app.use('*', secureHeaders());
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-app.use('/api/public/*', async (c, next) => {
-  const key = c.req.header('CF-Connecting-IP') ?? 'unknown';
+
+const developmentBuckets = new Map<string, { count: number; resetAt: number }>();
+async function allowed(binding: RateLimit | undefined, key: string, fallbackLimit: number): Promise<boolean> {
+  if (binding) return (await binding.limit({ key })).success;
   const now = Date.now();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || bucket.resetAt <= now) rateBuckets.set(key, { count: 1, resetAt: now + 60_000 });
-  else {
-    bucket.count += 1;
-    if (bucket.count > 120) return c.json({ error: 'RATE_LIMITED' }, 429);
+  const current = developmentBuckets.get(key);
+  if (!current || current.resetAt <= now) {
+    developmentBuckets.set(key, { count: 1, resetAt: now + 60_000 });
+    return true;
   }
+  current.count += 1;
+  return current.count <= fallbackLimit;
+}
+
+app.use('/api/public/*', async (c, next) => {
+  if (c.req.path.endsWith('/payments/payme/callback') || c.req.path.endsWith('/payments/tranzila/notify')) { await next(); return; }
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  const route = c.req.path.replace(/\/[0-9a-f-]{20,}/gi, '/:id');
+  if (!(await allowed(c.env.PUBLIC_RATE_LIMITER, `${ip}:${route}`, 120))) return c.json({ error: 'RATE_LIMITED' }, 429);
+  await next();
+});
+
+const adminAuthRateLimit = async (c: any, next: any) => {
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  if (!(await allowed(c.env.AUTH_RATE_LIMITER, `${ip}:admin-login`, 10))) return c.json({ error: 'RATE_LIMITED' }, 429);
+  await next();
+};
+app.use('/api/admin/login', adminAuthRateLimit);
+app.use('/api/admin/login/*', adminAuthRateLimit);
+app.use('/api/admin/bootstrap', adminAuthRateLimit);
+app.use('/api/admin/password-reset/*', async (c, next) => {
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  if (!(await allowed(c.env.AUTH_RATE_LIMITER, `${ip}:admin-reset`, 10))) return c.json({ error: 'RATE_LIMITED' }, 429);
+  await next();
+});
+app.use('/api/public/portal/request-link', async (c, next) => {
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  if (!(await allowed(c.env.AUTH_RATE_LIMITER, `${ip}:portal-link`, 10))) return c.json({ error: 'RATE_LIMITED' }, 429);
   await next();
 });
 

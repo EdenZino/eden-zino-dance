@@ -1,39 +1,29 @@
-# Feature Matrix
+# Feature Matrix — Release 1.2.0
 
-Legend: **Complete** means implemented in this repository. **Provider setup** means the workflow exists, but a paid or authenticated third-party account must be connected.
-
-| Feature | Database | API | Public UI | Admin UI | Status |
+| Capability | Database/API | Public UI | Admin UI | Validation | Status |
 |---|---:|---:|---:|---:|---|
 | Multiple workshops and public codes | Yes | Yes | Yes | Yes | Complete |
-| Direct links and QR-ready URLs | Yes | Yes | Yes | Yes | Complete |
-| Workshop series and occurrence generation | Yes | Yes | — | Yes | Complete |
+| Responsive workshop filtering and levels | Yes | Yes | Yes | Build | Complete |
+| Public/admin mobile drawers | — | Yes | Yes | Build/CSS audit | Complete in 1.2.0 |
 | Atomic capacity reservation | Yes | Yes | Yes | Yes | Complete |
-| Per-phone and per-order limits | Yes | Yes | Yes | Yes | Complete |
-| Hosted payment and server notification | Yes | Yes | Yes | Status | Provider setup |
-| Coupons and usage limits | Yes | Yes | Yes | Yes | Complete |
-| Early Bird pricing | Yes | Yes | Yes | Yes | Complete |
-| Deposits and later balance payment | Yes | Yes | Yes | Yes | Complete |
-| Multiple participants in one order | Yes | Yes | Yes | Yes | Complete |
-| Custom questions per workshop | Yes | Yes | Yes | Yes | Complete |
-| Waitlist and expiring invitation | Yes | Yes | Yes | Yes | Complete |
-| Transfers between workshops | Yes | Yes | Portal status | Yes | Complete |
-| Check-in / attendance | Yes | Yes | Registration code | Yes | Complete |
-| Full/partial refund workflow | Yes | Manual-provider workflow | Status | Yes | Provider setup |
-| Email confirmation and reminders | Queue | Cron/Resend | Yes | Operational status | Provider setup |
-| WhatsApp notifications | Queue | Signed webhook | — | Configuration | Provider setup |
-| Invoice/receipt events | Queue | Signed webhook | — | Configuration | Provider setup |
-| Pass products and credit redemption | Yes | Yes | Yes | Yes | Complete |
-| Membership products and manual renewal | Yes | Yes | Yes | Yes | Complete |
-| Automatic recurring card charging | Schema-ready | Adapter boundary | — | Fields | Requires paid tokenization/STO module |
-| Customer portal and purchase history | Yes | Yes | Yes | — | Complete |
-| Cancellation requests | Yes | Yes | Yes | Yes | Complete |
-| Privacy access/deletion requests | Yes | Yes | Yes | Yes | Complete |
-| Controlled anonymization | Yes | Yes | — | Yes | Complete |
-| Retention-policy maintenance | Yes | Cron | — | Settings | Complete |
-| Editable instructor content | Yes | Yes | Yes | Yes | Complete |
-| Editable legal documents/versioning | Yes | Yes | Yes | Yes | Complete |
-| Image storage in R2 | Metadata | Yes | Yes | Yes | Complete |
-| Instructor revenue report | Yes | Yes | — | Yes | Complete |
-| CSV exports for operations/accounting | Yes | Yes | — | Yes | Complete |
-| Role-based admin access | Yes | Yes | — | Yes | Complete |
-| Audit log | Yes | Yes | — | Yes | Complete |
+| Hosted PayMe sale and callback | Yes | Yes | Status | Mocked provider + DB | Code complete; merchant test required |
+| Full/partial PayMe refund orchestration | Yes | Status | Yes | DB/provider mock | Code complete; merchant endpoint test required |
+| Refund retry/idempotency/double-refund protection | Yes | — | Yes | Yes | Complete |
+| Cancellation + entitlement restoration + waitlist | Yes | Request | Yes | Yes | Complete |
+| Atomic workshop transfer | Yes | — | Yes | Yes | Complete; equal-price policy |
+| Secure customer portal | Yes | Magic link | — | Schema/typecheck | Complete |
+| Registration/order status token protection | Yes | Yes | — | Typecheck | Complete |
+| Admin lockout and password reset | Yes | — | Yes | Schema/typecheck | Complete |
+| Admin email OTP | Yes | — | Yes | Schema/typecheck | Complete; email provider required |
+| Cloudflare Turnstile server validation | Yes | Yes | Yes | Typecheck | Complete; keys required |
+| Cloudflare rate-limit bindings | Yes | — | — | Wrangler dry-run | Complete |
+| Truthful notification delivery states | Yes | — | Operations | Yes | Complete |
+| Legal draft/version/OWNER approval | Yes | Active docs | Yes | Schema/typecheck | Complete technically |
+| Production readiness gate | Yes | — | Yes | Typecheck | Complete |
+| Coupons and Early Bird | Yes | Yes | Create | DB tests | Usable; richer lifecycle UI is P1 |
+| Waitlist invitation expiry/capacity hold | Yes | Yes | Yes | Yes | Complete |
+| Passes and memberships | Yes | Yes | Create | Yes | Usable; recurring charge is external/P1 |
+| Attendance | Yes | Code flow | Yes | Build | Complete |
+| CSV exports and reports | Yes | — | Yes | Build | Complete |
+| R2 image upload | Yes | Display | Upload | Build | Upload complete; deletion/gallery is P1 |
+| Legal advice / final accessibility certification | No | — | Approval record | External | Must be supplied by qualified professionals |

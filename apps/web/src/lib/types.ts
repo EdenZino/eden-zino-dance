@@ -13,4 +13,5 @@ export interface SiteData {
   settings: Record<string, string>;
   content: { home?: Record<string, any>; instructor?: Record<string, any>; legal?: Record<string, any> };
   legal: Array<{ type: string; version: string; title: string; content: string }>;
+  turnstileSiteKey?: string;
 }
