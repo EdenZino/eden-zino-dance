@@ -1,4 +1,4 @@
-name = "eden-dance-platform"
+name = "eden-zino-dance-il"
 main = "apps/api/src/index.ts"
 compatibility_date = "2026-07-01"
 compatibility_flags = ["nodejs_compat"]
@@ -14,7 +14,7 @@ bucket_name = "eden-dance-media"
 preview_bucket_name = "eden-dance-media-preview"
 
 [vars]
-PUBLIC_APP_URL = "https://dance.example.co.il"
+PUBLIC_APP_URL = "https://eden-zino-dance-il.edenzino21.workers.dev"
 PAYMENT_PROVIDER = "mock"
 # Sandbox default. Replace with the live API base supplied by PayMe before production.
 PAYME_API_BASE = "https://sandbox.payme.io/api"
