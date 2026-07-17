@@ -12,6 +12,7 @@ import { ContactPage, LegalPage } from './pages/StaticPages';
 import { AdminPage } from './pages/AdminPage';
 import { WaitlistInvitePage } from './pages/WaitlistInvitePage';
 import { ProductsPage, ProductResultPage } from './pages/ProductsPage';
+import { GalleryPage } from './pages/GalleryPage';
 import './styles.css';
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
@@ -21,6 +22,7 @@ const router = createBrowserRouter([
     { path: '/w/:code', element: <WorkshopPage /> }, { path: '/my-registration', element: <PortalPage /> },
     { path: '/payment/mock', element: <PaymentMockPage /> }, { path: '/payment/result', element: <PaymentResultPage /> },
     { path: '/products', element: <ProductsPage /> }, { path: '/products/result', element: <ProductResultPage /> },
+    { path: '/gallery', element: <GalleryPage /> },
     { path: '/contact', element: <ContactPage /> }, { path: '/waitlist/:token', element: <WaitlistInvitePage /> }, { path: '/legal/:type', element: <LegalPage /> },
   ]},
   { path: '/admin/*', element: <AdminPage /> },

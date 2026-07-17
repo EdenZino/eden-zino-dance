@@ -16,6 +16,7 @@ function NavigationLinks({ instagram, onNavigate }: { instagram: string; onNavig
     <NavLink to="/" onClick={onNavigate}>בית</NavLink>
     <NavLink to="/workshops" onClick={onNavigate}>סדנאות</NavLink>
     <NavLink to="/products" onClick={onNavigate}>כרטיסיות ומנויים</NavLink>
+    <NavLink to="/gallery" onClick={onNavigate}>גלריה</NavLink>
     <NavLink to="/my-registration" onClick={onNavigate}>האזור שלי</NavLink>
     <NavLink to="/contact" onClick={onNavigate}>יצירת קשר</NavLink>
     <a href={instagram} target="_blank" rel="noreferrer" aria-label="פתיחת האינסטגרם של עדן זינו בחלון חדש" onClick={onNavigate}><Camera size={19} aria-hidden="true"/><span className="mobile-only-label">אינסטגרם</span></a>
@@ -111,7 +112,7 @@ export function PublicLayout() {
       <main id="main-content" tabIndex={-1}><Outlet /></main>
       <footer className="site-footer">
         <div><Brand/><p>סדנאות ריקוד שמחברות טכניקה, ביטחון ואנרגיה.</p>{address && <small>{address}</small>}</div>
-        <div><h4>מידע</h4><Link to="/workshops">סדנאות</Link><Link to="/products">כרטיסיות ומנויים</Link><Link to="/legal/TERMS">תנאי שימוש</Link><Link to="/legal/PRIVACY">פרטיות</Link><Link to="/legal/CANCELLATION">ביטולים</Link><Link to="/legal/ACCESSIBILITY">נגישות</Link></div>
+        <div><h4>מידע</h4><Link to="/workshops">סדנאות</Link><Link to="/products">כרטיסיות ומנויים</Link><Link to="/gallery">גלריה</Link><Link to="/legal/TERMS">תנאי שימוש</Link><Link to="/legal/PRIVACY">פרטיות</Link><Link to="/legal/CANCELLATION">ביטולים</Link><Link to="/legal/ACCESSIBILITY">נגישות</Link></div>
         <div><h4>יצירת קשר</h4><a href={`mailto:${email}`}>{email}</a>{phone && <a href={`tel:${phone}`}>{phone}</a>}<Link to="/admin">כניסת מנהלים</Link></div>
         <small>© {new Date().getFullYear()} Eden Zino Dance. כל הזכויות שמורות.</small>
       </footer>

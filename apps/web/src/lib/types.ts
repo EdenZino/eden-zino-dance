@@ -15,3 +15,19 @@ export interface SiteData {
   legal: Array<{ type: string; version: string; title: string; content: string }>;
   turnstileSiteKey?: string;
 }
+
+
+export interface GalleryItem {
+  id: string;
+  media_type: 'IMAGE' | 'VIDEO';
+  title: string;
+  caption: string;
+  alt_text: string;
+  display_order: number;
+  is_published?: boolean;
+  public_url: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string;
+}

@@ -1,4 +1,4 @@
-# Validation Report — Release 1.4.0
+# Validation Report — Release 1.5.0
 
 **Date:** 17 July 2026
 
@@ -15,10 +15,12 @@ ALL VALIDATION TESTS PASSED
 - Web TypeScript compilation.
 - React/Vite production build.
 - Worker TypeScript compilation.
-- Migrations `0001` through `0006` loaded successfully.
-- Classic/Modern theme default and database update.
-- Five Classic palette values, default selection and database constraint.
-- 36 public PostgreSQL tables detected.
+- Migrations `0001` through `0007` loaded successfully.
+- 37 public PostgreSQL tables detected.
+- Classic/Modern theme selection.
+- Five Classic palette values and database constraint.
+- Gallery item publishing query.
+- Gallery asset deletion with database cascade.
 - Atomic reservation and deposit calculation.
 - Deposit confirmation and later balance confirmation.
 - Last-seat overbooking protection.
@@ -32,43 +34,48 @@ ALL VALIDATION TESTS PASSED
 - Waitlist invitation capacity hold.
 - Atomic transfer capacity and price protection.
 
+## Gallery implementation checks
 
-## Classic palette validation
+The release includes:
 
-The following minimum contrast ratios were calculated for each palette against its primary reading background:
+- Public `GET /api/public/gallery` returning only published items.
+- Admin list, upload, update and delete endpoints.
+- Cloudflare R2 storage for image and video files.
+- JPEG, PNG, WebP, GIF, AVIF, MP4 and WebM validation.
+- Separate size limits for images and videos.
+- Database metadata for title, caption, accessible description, publication state and order.
+- Permanent deletion from the database and R2.
+- HTTP byte-range responses (`206 Partial Content`) for efficient video playback and seeking.
+- Public gallery page, image lightbox and direct video controls.
+- Admin gallery management UI.
 
-| Palette | Secondary text | Accent text | Spotlight on stage |
-|---|---:|---:|---:|
-| Rosin | 5.60:1 | 5.38:1 | 9.48:1 |
-| Plum | 5.80:1 | 7.74:1 | 11.30:1 |
-| Ocean | 5.31:1 | 6.12:1 | 9.31:1 |
-| Sage | 5.12:1 | 6.39:1 | 7.41:1 |
-| Midnight | 5.54:1 | 6.59:1 | 9.98:1 |
+R2 upload and deletion require the real Cloudflare binding and therefore must also be smoke-tested after deployment with a real image and a short MP4.
 
-All listed text combinations exceed the WCAG AA 4.5:1 threshold for normal text. Image overlays still require manual review with final uploaded imagery.
+## Status-badge correction
+
+All `.status-chip` and workshop `.status-badge` elements now use:
+
+- `inline-flex`.
+- Horizontal and vertical centering.
+- Fixed minimum height.
+- Explicit line height.
+- Middle alignment in card headers.
+
+Common administrator statuses are translated to Hebrew while preserving the original status value for CSS state styling.
 
 ## Cloudflare package validation
 
-`npx wrangler deploy --config wrangler.toml --dry-run` passed. The dry run recognized:
+```text
+npx wrangler deploy --config wrangler.toml --dry-run
+```
+
+passed and recognized:
 
 - Static asset bundle.
 - R2 media binding.
-- Public rate limiter: 120 requests per 60 seconds.
-- Authentication rate limiter: 10 requests per 60 seconds.
-- PayMe configuration variables.
-
-## Mobile drawer validation
-
-The public drawer is rendered through a React Portal under `document.body`, outside the sticky/backdrop-filtered header.
-
-A headless Chromium CSS/layout test at a `390×844` mobile viewport measured:
-
-- Drawer: approximately `343×844px`.
-- Position: `fixed`.
-- Flex shrink: `0`.
-- Six visible navigation links.
-- Each link: approximately `311×49px`, above the 44px touch-height target.
-- Internal vertical scrolling and full-height viewport behavior.
+- Public rate limiter.
+- Authentication rate limiter.
+- PayMe environment variables.
 
 ## Dependency audit
 
@@ -79,14 +86,11 @@ found 0 vulnerabilities
 
 ## External validation still required
 
-Automated local validation cannot replace:
-
-- A real PayMe merchant Sandbox payment.
-- A real PayMe production payment.
-- Full and partial refunds against the merchant's enabled refund API.
+- Upload one real image and one short MP4 after deployment.
+- Verify video playback and seeking in Chrome Android and Safari iPhone.
+- Confirm R2 deletion in the Cloudflare dashboard after deleting a gallery item.
+- Verify final image alternative text and video captions with the actual media.
+- A real PayMe Sandbox and production payment/refund cycle.
 - Delivery tests through the real email domain.
-- Invoice-provider document generation.
 - Legal review and OWNER approval of final documents.
-- Manual testing on the exact iPhone/Android devices used by the business.
 - VoiceOver/NVDA, keyboard, contrast and zoom checks for both themes.
-- Backup restore, load and penetration testing.

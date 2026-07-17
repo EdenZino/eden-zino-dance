@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 
 const db = new PGlite();
-for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql', 'db/migrations/0006_classic_color_palettes.sql']) {
+for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql', 'db/migrations/0006_classic_color_palettes.sql', 'db/migrations/0007_gallery_library.sql']) {
   let sql = await fs.readFile(file, 'utf8');
   // PGlite includes gen_random_uuid but does not package the pgcrypto extension.
   sql = sql.replace(/create extension if not exists pgcrypto;?/ig, '');
@@ -72,6 +72,15 @@ let invalidPaletteError = '';
 try { await db.query("update business_settings set classic_palette='NEON' where singleton=true"); } catch (error) { invalidPaletteError = error.message; }
 if (!invalidPaletteError) throw new Error('classic palette constraint failed');
 console.log('✓ five selectable Classic color palettes and database constraint');
+
+const galleryAsset = (await db.query("insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by) values('gallery/test/image.webp','https://example.test/image.webp','image.webp','image/webp',1234,$1) returning id", [admin.id])).rows[0];
+const galleryItem = (await db.query("insert into gallery_items(asset_id,media_type,title,alt_text,display_order,is_published,created_by) values($1,'IMAGE','Test gallery item','A dancer in the studio',10,true,$2) returning id", [galleryAsset.id, admin.id])).rows[0];
+const galleryPublic = (await db.query("select g.id,a.public_url from gallery_items g join uploaded_assets a on a.id=g.asset_id where g.is_published=true order by g.display_order")).rows;
+if (galleryPublic.length !== 1 || galleryPublic[0].id !== galleryItem.id) throw new Error('gallery publishing schema failed');
+await db.query('delete from uploaded_assets where id=$1', [galleryAsset.id]);
+const galleryCascade = (await db.query('select count(*)::int count from gallery_items where id=$1', [galleryItem.id])).rows[0].count;
+if (galleryCascade !== 0) throw new Error('gallery asset cascade deletion failed');
+console.log('✓ image/video gallery publishing and deletion schema');
 
 // P0: truthful notification status must not masquerade as sent.
 await db.query("insert into notification_jobs(registration_id,channel,template_key,status,last_error) values($1,'EMAIL','TEST_CONFIGURATION','CONFIGURATION_ERROR','EMAIL_PROVIDER_NOT_CONFIGURED')", [reserve.registration_id]);

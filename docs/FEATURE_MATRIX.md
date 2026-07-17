@@ -1,4 +1,4 @@
-# Feature Matrix — Release 1.2.0
+# Feature Matrix — Release 1.5.0
 
 | Capability | Database/API | Public UI | Admin UI | Validation | Status |
 |---|---:|---:|---:|---:|---|
@@ -25,5 +25,5 @@
 | Passes and memberships | Yes | Yes | Create | Yes | Usable; recurring charge is external/P1 |
 | Attendance | Yes | Code flow | Yes | Build | Complete |
 | CSV exports and reports | Yes | — | Yes | Build | Complete |
-| R2 image upload | Yes | Display | Upload | Build | Upload complete; deletion/gallery is P1 |
+| Managed R2 image/video gallery | Yes | Gallery, lightbox, direct playback | Upload, edit, publish, reorder, delete | Build + DB tests + Wrangler | Complete |
 | Legal advice / final accessibility certification | No | — | Approval record | External | Must be supplied by qualified professionals |

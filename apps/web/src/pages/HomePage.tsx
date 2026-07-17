@@ -1,8 +1,8 @@
-import { ArrowLeft, Camera, ShieldCheck, Sparkles, TicketCheck, Users } from 'lucide-react';
+import { ArrowLeft, Camera, Film, Images, ShieldCheck, Sparkles, TicketCheck, Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { SiteData, Workshop } from '../lib/types';
+import type { GalleryItem, SiteData, Workshop } from '../lib/types';
 import { WorkshopCard } from '../components/WorkshopCard';
 import { ErrorBox, Loading } from '../components/Loading';
 import { usePublicTheme } from '../lib/theme';
@@ -40,15 +40,7 @@ export function HomePage() {
       <div className="center-action"><Link className="button light" to="/workshops">לכל הסדנאות <ArrowLeft/></Link></div>
     </section>
 
-    {isModern && <section className="section-pad studio-gallery">
-      <div className="section-heading"><span className="eyebrow">INSIDE THE STUDIO</span><h2>רגעים מהרחבה</h2><p>קצת מהאנרגיה, מהתנועה ומהקהילה שנוצרת בכל סדנה.</p></div>
-      <div className="gallery-grid">
-        <figure className="gallery-a" style={{ backgroundImage: 'url(/images/gallery-1.jpg)' }}/>
-        <figure className="gallery-b" style={{ backgroundImage: 'url(/images/gallery-2.jpg)' }}/>
-        <figure className="gallery-c" style={{ backgroundImage: 'url(/images/gallery-3.jpg)' }}/>
-        <figure className="gallery-d" style={{ backgroundImage: 'url(/images/gallery-4.jpg)' }}/>
-      </div>
-    </section>}
+    <GalleryPreview/>
 
     <section className="section-pad instructor-section">
       <div className="portrait-panel" style={portraitImg ? { backgroundImage: `url(${portraitImg})` } : undefined}>
@@ -63,4 +55,24 @@ export function HomePage() {
 
 function CodeBox() {
   return <form className="code-box" onSubmit={(e) => { e.preventDefault(); const code = new FormData(e.currentTarget).get('code'); if (code) location.href = `/w/${String(code).trim().toUpperCase()}`; }}><label htmlFor="home-code">קוד הסדנה</label><div><input id="home-code" name="code" placeholder="לדוגמה: EZ7K4M2" required/><button className="button primary">פתיחת סדנה <ArrowLeft/></button></div></form>;
+}
+
+
+function GalleryPreview() {
+  const query = useQuery({ queryKey: ['gallery'], queryFn: () => api<{ items: GalleryItem[] }>('/public/gallery') });
+  const items = query.data?.items.slice(0, 6) ?? [];
+  if (!items.length) return null;
+  return <section className="section-pad studio-gallery">
+    <div className="section-heading"><span className="eyebrow">INSIDE THE STUDIO</span><h2>רגעים מהרחבה</h2><p>תמונות וסרטונים מהסדנאות, מהתנועה ומהקהילה.</p></div>
+    <div className="home-gallery-grid">
+      {items.map((item) => <Link className="home-gallery-item" to="/gallery" key={item.id} aria-label={`פתיחת הגלריה: ${item.title || 'רגע מהרחבה'}`}>
+        {item.media_type === 'VIDEO'
+          ? <video muted playsInline preload="metadata"><source src={item.public_url} type={item.content_type}/></video>
+          : <img src={item.public_url} alt={item.alt_text || item.title || 'רגע מהרחבה'} loading="lazy"/>}
+        <span>{item.media_type === 'VIDEO' ? <Film/> : <Images/>}</span>
+        {item.title && <b>{item.title}</b>}
+      </Link>)}
+    </div>
+    <div className="center-action"><Link className="button outline" to="/gallery">לגלריה המלאה <ArrowLeft/></Link></div>
+  </section>;
 }

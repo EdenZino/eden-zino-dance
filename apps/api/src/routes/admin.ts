@@ -369,16 +369,108 @@ admin.post('/pass-products', requireRole('OWNER','ADMIN'), async (c) => {
   const row=await db(c.env)`insert into pass_products(name,description,credits,price_agorot,validity_days,is_active) values(${input.name},${input.description},${input.credits},${input.priceAgorot},${input.validityDays},${input.isActive}) returning *`; return c.json({product:row[0]},201);
 });
 
+const imageContentTypes = new Set(['image/jpeg','image/png','image/webp','image/gif','image/avif']);
+const videoContentTypes = new Set(['video/mp4','video/webm']);
+
+async function storeAsset(c: any, file: File, folder: string, mode: 'IMAGE_ONLY' | 'GALLERY') {
+  const type = String(file.type || '').toLowerCase();
+  const isImage = imageContentTypes.has(type);
+  const isVideo = videoContentTypes.has(type);
+  if (mode === 'IMAGE_ONLY' && !isImage) throw new Error('IMAGE_ONLY');
+  if (mode === 'GALLERY' && !isImage && !isVideo) throw new Error('UNSUPPORTED_MEDIA_TYPE');
+  const maxBytes = isVideo ? 80 * 1024 * 1024 : 12 * 1024 * 1024;
+  if (file.size <= 0) throw new Error('EMPTY_FILE');
+  if (file.size > maxBytes) throw new Error(isVideo ? 'VIDEO_TOO_LARGE' : 'IMAGE_TOO_LARGE');
+  const safeName = file.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-120) || 'media-file';
+  const date = new Date().toISOString().slice(0, 10).replaceAll('-', '/');
+  const key = `${folder}/${date}/${crypto.randomUUID()}-${safeName}`;
+  await c.env.MEDIA.put(key, file.stream(), {
+    httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
+    customMetadata: { originalName: file.name, uploadedAt: new Date().toISOString() },
+  });
+  const publicUrl = `${String(c.env.PUBLIC_APP_URL).replace(/\/$/, '')}/api/media/${encodeURIComponent(key)}`;
+  const actor = c.get('admin');
+  const rows = await db(c.env)`insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by)
+    values(${key},${publicUrl},${file.name},${type},${file.size},${actor.adminId}::uuid) returning *`;
+  return { asset: rows[0] as any, mediaType: isVideo ? 'VIDEO' : 'IMAGE' };
+}
+
 admin.post('/uploads', requireRole('OWNER','ADMIN'), async (c) => {
-  const form = await c.req.formData(); const file = form.get('file');
-  if (!(file instanceof File)) return c.json({ error: 'FILE_REQUIRED' }, 400);
-  if (!file.type.startsWith('image/')) return c.json({ error: 'IMAGE_ONLY' }, 400);
-  if (file.size > 8 * 1024 * 1024) return c.json({ error: 'FILE_TOO_LARGE' }, 413);
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g,'-'); const key = `media/${new Date().toISOString().slice(0,10)}/${crypto.randomUUID()}-${safeName}`;
-  await c.env.MEDIA.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-  const publicUrl = `${c.env.PUBLIC_APP_URL}/api/media/${encodeURIComponent(key)}`; const actor=c.get('admin');
-  const row=await db(c.env)`insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by) values(${key},${publicUrl},${file.name},${file.type},${file.size},${actor.adminId}::uuid) returning *`;
-  return c.json({ asset: row[0] }, 201);
+  try {
+    const form = await c.req.formData(); const file = form.get('file');
+    if (!(file instanceof File)) return c.json({ error: 'FILE_REQUIRED' }, 400);
+    const stored = await storeAsset(c, file, 'media', 'IMAGE_ONLY');
+    return c.json({ asset: stored.asset }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'UPLOAD_FAILED';
+    const status = message.includes('TOO_LARGE') ? 413 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+admin.get('/gallery', async (c) => {
+  const items = await db(c.env)`select g.id,g.media_type,g.title,g.caption,g.alt_text,g.display_order,g.is_published,g.created_at,g.updated_at,
+    a.id asset_id,a.public_url,a.file_name,a.content_type,a.size_bytes
+    from gallery_items g join uploaded_assets a on a.id=g.asset_id
+    order by g.display_order asc,g.created_at desc`;
+  return c.json({ items });
+});
+
+admin.post('/gallery', requireRole('OWNER','ADMIN'), async (c) => {
+  try {
+    const form = await c.req.formData(); const file = form.get('file');
+    if (!(file instanceof File)) return c.json({ error: 'FILE_REQUIRED' }, 400);
+    const title = String(form.get('title') ?? '').trim().slice(0, 160);
+    const caption = String(form.get('caption') ?? '').trim().slice(0, 2000);
+    const altText = String(form.get('altText') ?? '').trim().slice(0, 500);
+    const isPublished = String(form.get('isPublished') ?? 'true') !== 'false';
+    const displayOrder = Math.max(0, Math.min(100000, Number(form.get('displayOrder') ?? 0) || 0));
+    const stored = await storeAsset(c, file, 'gallery', 'GALLERY');
+    const actor = c.get('admin');
+    const rows = await db(c.env)`insert into gallery_items(asset_id,media_type,title,caption,alt_text,display_order,is_published,created_by)
+      values(${stored.asset.id}::uuid,${stored.mediaType},${title},${caption},${altText},${displayOrder},${isPublished},${actor.adminId}::uuid)
+      returning *`;
+    const item = { ...(rows[0] as any), asset_id: stored.asset.id, public_url: stored.asset.public_url, file_name: stored.asset.file_name, content_type: stored.asset.content_type, size_bytes: stored.asset.size_bytes };
+    await db(c.env)`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value,ip_address)
+      values(${actor.adminId}::uuid,'CREATE','GALLERY_ITEM',${String((rows[0] as any).id)},${JSON.stringify(item)}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
+    return c.json({ item }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'GALLERY_UPLOAD_FAILED';
+    const status = message.includes('TOO_LARGE') ? 413 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+admin.patch('/gallery/:id', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id');
+  const input = z.object({
+    title: z.string().max(160).optional(), caption: z.string().max(2000).optional(), altText: z.string().max(500).optional(),
+    displayOrder: z.number().int().min(0).max(100000).optional(), isPublished: z.boolean().optional(),
+  }).parse(await c.req.json());
+  const current = await db(c.env)`select * from gallery_items where id=${id}::uuid`;
+  if (!current.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const row = current[0] as any;
+  const updated = await db(c.env)`update gallery_items set title=${input.title ?? row.title},caption=${input.caption ?? row.caption},
+    alt_text=${input.altText ?? row.alt_text},display_order=${input.displayOrder ?? row.display_order},is_published=${input.isPublished ?? row.is_published},updated_at=now()
+    where id=${id}::uuid returning *`;
+  const actor = c.get('admin');
+  await db(c.env)`insert into audit_logs(admin_id,action,entity_type,entity_id,old_value,new_value,ip_address)
+    values(${actor.adminId}::uuid,'UPDATE','GALLERY_ITEM',${id},${JSON.stringify(row)}::jsonb,${JSON.stringify(updated[0])}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
+  return c.json({ item: updated[0] });
+});
+
+admin.delete('/gallery/:id', requireRole('OWNER','ADMIN'), async (c) => {
+  const id = c.req.param('id');
+  const sql = db(c.env);
+  const rows = await sql`select g.*,a.object_key,a.id asset_id,a.public_url from gallery_items g join uploaded_assets a on a.id=g.asset_id where g.id=${id}::uuid`;
+  if (!rows.length) return c.json({ error: 'NOT_FOUND' }, 404);
+  const item = rows[0] as any;
+  await sql`delete from uploaded_assets where id=${item.asset_id}::uuid`;
+  try { await c.env.MEDIA.delete(String(item.object_key)); } catch (error) { console.error('R2 gallery deletion failed', error); }
+  const actor = c.get('admin');
+  await sql`insert into audit_logs(admin_id,action,entity_type,entity_id,old_value,ip_address)
+    values(${actor.adminId}::uuid,'DELETE','GALLERY_ITEM',${id},${JSON.stringify(item)}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
+  return c.json({ ok: true });
 });
 
 admin.get('/reports/summary', async (c) => {

@@ -56,9 +56,30 @@ app.route('/api/admin', adminRoutes);
 
 app.get('/api/media/*', async (c) => {
   const key = decodeURIComponent(c.req.path.replace('/api/media/', ''));
-  const object = await c.env.MEDIA.get(key);
+  const requestedRange = c.req.header('Range');
+  const object = await c.env.MEDIA.get(key, requestedRange ? { range: c.req.raw.headers } : undefined);
   if (!object) return c.notFound();
-  const headers = new Headers(); object.writeHttpMetadata(headers); headers.set('etag', object.httpEtag); headers.set('cache-control', 'public, max-age=31536000, immutable');
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('cache-control', 'public, max-age=31536000, immutable');
+  headers.set('accept-ranges', 'bytes');
+  if (requestedRange && object.range) {
+    let start = 0;
+    let length = object.size;
+    if ('suffix' in object.range) {
+      length = Math.min(object.size, object.range.suffix);
+      start = Math.max(0, object.size - length);
+    } else {
+      start = object.range.offset ?? 0;
+      length = object.range.length ?? Math.max(0, object.size - start);
+    }
+    const end = Math.min(object.size - 1, start + Math.max(0, length) - 1);
+    headers.set('content-range', `bytes ${start}-${end}/${object.size}`);
+    headers.set('content-length', String(Math.max(0, end - start + 1)));
+    return new Response(object.body, { status: 206, headers });
+  }
+  headers.set('content-length', String(object.size));
   return new Response(object.body, { headers });
 });
 

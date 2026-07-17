@@ -76,6 +76,14 @@ publicRoutes.get('/site', async (c) => {
   });
 });
 
+publicRoutes.get('/gallery', async (c) => {
+  const items = await db(c.env)`select g.id,g.media_type,g.title,g.caption,g.alt_text,g.display_order,g.created_at,
+    a.public_url,a.file_name,a.content_type,a.size_bytes
+    from gallery_items g join uploaded_assets a on a.id=g.asset_id
+    where g.is_published=true order by g.display_order asc,g.created_at desc`;
+  return c.json({ items });
+});
+
 publicRoutes.get('/workshops', async (c) => {
   const result = await db(c.env)`select w.id, w.public_code, w.slug, w.title, w.short_description, w.image_url, w.location_name,
     w.location_address, w.starts_at, w.ends_at, w.level, w.audience, w.price_agorot, w.early_bird_price_agorot,
