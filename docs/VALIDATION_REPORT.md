@@ -1,4 +1,4 @@
-# Validation Report — Release 1.3.0
+# Validation Report — Release 1.4.0
 
 **Date:** 17 July 2026
 
@@ -15,8 +15,9 @@ ALL VALIDATION TESTS PASSED
 - Web TypeScript compilation.
 - React/Vite production build.
 - Worker TypeScript compilation.
-- Migrations `0001` through `0005` loaded successfully.
+- Migrations `0001` through `0006` loaded successfully.
 - Classic/Modern theme default and database update.
+- Five Classic palette values, default selection and database constraint.
 - 36 public PostgreSQL tables detected.
 - Atomic reservation and deposit calculation.
 - Deposit confirmation and later balance confirmation.
@@ -30,6 +31,21 @@ ALL VALIDATION TESTS PASSED
 - Refund completion idempotency.
 - Waitlist invitation capacity hold.
 - Atomic transfer capacity and price protection.
+
+
+## Classic palette validation
+
+The following minimum contrast ratios were calculated for each palette against its primary reading background:
+
+| Palette | Secondary text | Accent text | Spotlight on stage |
+|---|---:|---:|---:|
+| Rosin | 5.60:1 | 5.38:1 | 9.48:1 |
+| Plum | 5.80:1 | 7.74:1 | 11.30:1 |
+| Ocean | 5.31:1 | 6.12:1 | 9.31:1 |
+| Sage | 5.12:1 | 6.39:1 | 7.41:1 |
+| Midnight | 5.54:1 | 6.59:1 | 9.98:1 |
+
+All listed text combinations exceed the WCAG AA 4.5:1 threshold for normal text. Image overlays still require manual review with final uploaded imagery.
 
 ## Cloudflare package validation
 

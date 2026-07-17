@@ -66,3 +66,8 @@ https://YOUR-DOMAIN/?theme=modern
 - `position: fixed`.
 - `flex-shrink: 0`.
 
+
+
+## פלטות Classic
+
+מגרסה 1.4.0 ניתן לבחור גם פלטת צבעים עבור Classic. ראו `docs/CLASSIC_COLOR_PALETTES_HE.md`.

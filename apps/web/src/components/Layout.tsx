@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { SiteData } from '../lib/types';
-import { normalizePublicTheme, PublicThemeContext, type PublicTheme } from '../lib/theme';
+import { normalizeClassicPalette, normalizePublicTheme, PublicThemeContext, type ClassicPalette, type PublicTheme } from '../lib/theme';
 
 export function Brand({ onNavigate }: { onNavigate?: () => void } = {}) {
   return <Link className="brand" to="/" aria-label="Eden Zino Dance - דף הבית" onClick={onNavigate}><span className="brand-mark" aria-hidden="true">EZ</span><span><b>EDEN ZINO</b><small>DANCE</small></span></Link>;
@@ -22,7 +22,7 @@ function NavigationLinks({ instagram, onNavigate }: { instagram: string; onNavig
   </>;
 }
 
-function MobileDrawer({ open, theme, instagram, onClose }: { open: boolean; theme: PublicTheme; instagram: string; onClose: () => void }) {
+function MobileDrawer({ open, theme, palette, instagram, onClose }: { open: boolean; theme: PublicTheme; palette: ClassicPalette; instagram: string; onClose: () => void }) {
   const drawerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -62,7 +62,7 @@ function MobileDrawer({ open, theme, instagram, onClose }: { open: boolean; them
 
   if (!open) return null;
   return createPortal(
-    <div className={`mobile-drawer-layer theme-${theme}`} role="presentation">
+    <div className={`mobile-drawer-layer theme-${theme} palette-${palette}`} role="presentation">
       <button className="mobile-drawer-scrim" aria-label="סגירת התפריט" type="button" onClick={onClose}/>
       <aside ref={drawerRef} id="mobile-navigation" className="mobile-drawer" aria-label="תפריט ראשי" aria-modal="true" role="dialog">
         <div className="mobile-drawer-header"><Brand onNavigate={onClose}/><button ref={closeRef} className="icon-button" type="button" aria-label="סגירת התפריט" onClick={onClose}><X aria-hidden="true"/></button></div>
@@ -87,7 +87,9 @@ export function PublicLayout() {
     const value = new URLSearchParams(location.search).get('theme');
     return value === 'classic' || value === 'modern' ? value : null;
   }, [location.search]);
+  const previewPalette = useMemo(() => normalizeClassicPalette(new URLSearchParams(location.search).get('palette')), [location.search]);
   const theme = previewTheme ?? normalizePublicTheme(settings.public_theme);
+  const palette = previewTheme === 'classic' ? previewPalette : normalizeClassicPalette(settings.classic_palette);
 
   useEffect(() => { setOpen(false); }, [location.pathname]);
   useEffect(() => {
@@ -97,15 +99,15 @@ export function PublicLayout() {
     return () => media.removeEventListener('change', closeOnDesktop);
   }, []);
 
-  return <PublicThemeContext.Provider value={theme}>
-    <div className={`site-shell theme-${theme}`} data-public-theme={theme}>
+  return <PublicThemeContext.Provider value={{ theme, classicPalette: palette }}>
+    <div className={`site-shell theme-${theme} palette-${palette}`} data-public-theme={theme} data-classic-palette={palette}>
       <a className="skip-link" href="#main-content">דילוג לתוכן הראשי</a>
       <header className="site-header">
         <Brand />
         <nav aria-label="ניווט ראשי" className="main-nav desktop-nav"><NavigationLinks instagram={instagram}/></nav>
         <button className="icon-button mobile-menu" type="button" aria-label={open ? 'סגירת תפריט' : 'פתיחת תפריט'} aria-expanded={open} aria-controls="mobile-navigation" onClick={() => setOpen((value) => !value)}>{open ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}</button>
       </header>
-      {previewTheme && <div className="theme-preview-banner" role="status"><span>תצוגה מקדימה: {previewTheme === 'classic' ? 'Classic' : 'Modern'}</span><Link to="/">סגירת תצוגה מקדימה</Link></div>}
+      {previewTheme && <div className="theme-preview-banner" role="status"><span>תצוגה מקדימה: {previewTheme === 'classic' ? `Classic · ${palette}` : 'Modern'}</span><Link to="/">סגירת תצוגה מקדימה</Link></div>}
       <main id="main-content" tabIndex={-1}><Outlet /></main>
       <footer className="site-footer">
         <div><Brand/><p>סדנאות ריקוד שמחברות טכניקה, ביטחון ואנרגיה.</p>{address && <small>{address}</small>}</div>
@@ -114,6 +116,6 @@ export function PublicLayout() {
         <small>© {new Date().getFullYear()} Eden Zino Dance. כל הזכויות שמורות.</small>
       </footer>
     </div>
-    <MobileDrawer open={open} theme={theme} instagram={instagram} onClose={closeMenu}/>
+    <MobileDrawer open={open} theme={theme} palette={palette} instagram={instagram} onClose={closeMenu}/>
   </PublicThemeContext.Provider>;
 }

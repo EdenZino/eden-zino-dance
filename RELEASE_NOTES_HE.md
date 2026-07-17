@@ -1,3 +1,22 @@
+# Release 1.4.0 — Classic Color Palettes — 17.07.2026
+
+## עיצוב
+
+- נוספו חמש פלטות צבעים מוכנות לעיצוב `Classic`: Rosin, Plum, Ocean, Sage ו־Midnight.
+- הפלטה משנה את מערכת הצבעים המלאה של האתר הציבורי, כולל רקעים, טקסטים, אזורי במה, כפתורים, קישורים, Hero ותפריט המובייל.
+- נוספו כרטיסי בחירה עם דוגמיות צבע וקישורי Preview לכל פלטה.
+- הבחירה נשמרת במסד ומוחלת מיד ללא Deploy נוסף.
+- עיצוב `Modern`, ממשק הניהול והלוגיקה העסקית אינם משתנים.
+
+## מסד ובדיקות
+
+- נוספה מיגרציה `0006_classic_color_palettes.sql` עם ברירת מחדל `ROSIN` ו־Constraint לערכים מותרים.
+- `npm run validate` עבר עם כל חמש הפלטות ועם בדיקת דחיית ערך לא חוקי.
+- `wrangler deploy --dry-run` עבר.
+- `npm audit --omit=dev --audit-level=high` החזיר 0 חולשות.
+
+---
+
 # Release 1.3.0 — Dual Theme & Portal Mobile Drawer — 17.07.2026
 
 ## עיצוב

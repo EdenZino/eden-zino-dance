@@ -64,7 +64,7 @@ async function loadPortalData(env: Env, email: string) {
 publicRoutes.get('/site', async (c) => {
   const sql = db(c.env);
   const [settings, content, legal] = await Promise.all([
-    sql`select business_name, contact_email, contact_phone, address, instagram_url, default_currency, timezone, public_theme from business_settings where singleton = true`,
+    sql`select business_name, contact_email, contact_phone, address, instagram_url, default_currency, timezone, public_theme, classic_palette from business_settings where singleton = true`,
     sql`select key, value from site_content`,
     sql`select type, version, title, content from legal_documents where is_active = true order by published_at desc`,
   ]);

@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 
 const db = new PGlite();
-for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql']) {
+for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql', 'db/migrations/0006_classic_color_palettes.sql']) {
   let sql = await fs.readFile(file, 'utf8');
   // PGlite includes gen_random_uuid but does not package the pgcrypto extension.
   sql = sql.replace(/create extension if not exists pgcrypto;?/ig, '');
@@ -61,6 +61,17 @@ await db.query("update business_settings set public_theme='MODERN' where singlet
 const updatedTheme = (await db.query("select public_theme from business_settings where singleton=true")).rows[0]?.public_theme;
 if (updatedTheme !== 'MODERN') throw new Error('public theme update failed');
 console.log('✓ classic/modern public theme setting');
+const paletteDefault = (await db.query("select classic_palette from business_settings where singleton=true")).rows[0]?.classic_palette;
+if (paletteDefault !== 'ROSIN') throw new Error('classic palette migration/default failed');
+for (const palette of ['PLUM','OCEAN','SAGE','MIDNIGHT','ROSIN']) {
+  await db.query('update business_settings set classic_palette=$1 where singleton=true', [palette]);
+  const selected = (await db.query('select classic_palette from business_settings where singleton=true')).rows[0]?.classic_palette;
+  if (selected !== palette) throw new Error(`classic palette update failed: ${palette}`);
+}
+let invalidPaletteError = '';
+try { await db.query("update business_settings set classic_palette='NEON' where singleton=true"); } catch (error) { invalidPaletteError = error.message; }
+if (!invalidPaletteError) throw new Error('classic palette constraint failed');
+console.log('✓ five selectable Classic color palettes and database constraint');
 
 // P0: truthful notification status must not masquerade as sent.
 await db.query("insert into notification_jobs(registration_id,channel,template_key,status,last_error) values($1,'EMAIL','TEST_CONFIGURATION','CONFIGURATION_ERROR','EMAIL_PROVIDER_NOT_CONFIGURED')", [reserve.registration_id]);

@@ -1,4 +1,4 @@
-# Eden Zino Dance — פלטפורמת סדנאות גרסה 1.3.0
+# Eden Zino Dance — פלטפורמת סדנאות גרסה 1.4.0
 
 מערכת מלאה לניהול, שיווק ומכירת סדנאות ריקוד: אתר ציבורי mobile-first, ממשק ניהול, קודי סדנה, הרשמה, קיבולת אטומית, PayMe, קופונים, Early Bird, מקדמות, רשימת המתנה, נוכחות, ביטולים, החזרים, העברות, מנויים, כרטיסיות, תוכן, דוחות ו־Audit Log.
 
@@ -28,7 +28,7 @@
 
 - React/Vite בעברית ו־RTL.
 - Cloudflare Worker שמגיש אתר ו־API באותו דומיין.
-- Neon PostgreSQL וארבע מיגרציות.
+- Neon PostgreSQL ושש מיגרציות.
 - Cloudflare R2 לתמונות.
 - PayMe Hosted Payment ו־Callback שרת.
 - Refund orchestration מלא ברמת המערכת.
@@ -136,4 +136,4 @@ docs            תיעוד הפעלה, אבטחה, PayMe ומשפט
 
 ## בחירת עיצוב
 
-האתר הציבורי תומך בשני עיצובים מתוך **ניהול → הגדרות**: `Classic` ו־`Modern`. השינוי נשמר במסד ואינו דורש Deploy נוסף. ראו `docs/DUAL_THEME_AND_MOBILE_MENU_HE.md`.
+האתר הציבורי תומך בשני עיצובים מתוך **ניהול → הגדרות**: `Classic` ו־`Modern`. בתוך `Classic` ניתן לבחור בין חמש פלטות צבעים מוכנות. השינויים נשמרים במסד ואינם דורשים Deploy נוסף. ראו `docs/DUAL_THEME_AND_MOBILE_MENU_HE.md` ו־`docs/CLASSIC_COLOR_PALETTES_HE.md`.

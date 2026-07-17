@@ -22,3 +22,8 @@ The repository starts with `PAYMENT_PROVIDER=mock`. Never commit real secrets or
 ## Public themes
 
 The public site supports `Classic` and `Modern` themes selectable under **Admin → Settings**. Theme changes are stored in the database and do not require a new deployment. See `docs/DUAL_THEME_AND_MOBILE_MENU_HE.md`.
+
+
+## Classic color palettes
+
+The Classic public theme includes five admin-selectable palettes: Rosin, Plum, Ocean, Sage, and Midnight. Run migration `0006_classic_color_palettes.sql` and see `docs/CLASSIC_COLOR_PALETTES_HE.md`.
