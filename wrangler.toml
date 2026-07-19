@@ -25,7 +25,7 @@ PAYME_REFUND_PATH = "refund-sale"
 ADMIN_EMAIL_OTP_REQUIRED = "true"
 # Public site key. Keep the matching secret in Cloudflare Secrets.
 TURNSTILE_SITE_KEY = ""
-EMAIL_FROM = "Eden Zino <ninfo@edenzino.com>"
+EMAIL_FROM = "Eden Zino <info@edenzino.com>"
 TRANZILA_PAYMENT_BASE = "https://direct.tranzila.com"
 
 [[ratelimits]]
