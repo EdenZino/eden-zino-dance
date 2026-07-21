@@ -11,19 +11,25 @@ export function HomePage() {
   const theme = usePublicTheme();
   const site = useQuery({ queryKey: ['site'], queryFn: () => api<SiteData>('/public/site') });
   const workshops = useQuery({ queryKey: ['workshops'], queryFn: () => api<{ workshops: Workshop[] }>('/public/workshops') });
+  const gallery = useQuery({ queryKey: ['gallery'], queryFn: () => api<{ items: GalleryItem[] }>('/public/gallery') });
   if (site.isLoading || workshops.isLoading) return <Loading label="מכינים את הרחבה..."/>;
   if (site.error || workshops.error) return <ErrorBox error={site.error || workshops.error}/>;
   const home = site.data?.content.home || {};
   const instructor = site.data?.content.instructor || {};
   const isModern = theme === 'modern';
-  const heroImg = home.heroImage || (isModern ? '/images/hero.jpg' : '');
+  const galleryImages = (gallery.data?.items || []).filter(item => item.media_type === 'IMAGE');
+  const selectedGalleryImage = galleryImages.find(item => item.id === home.heroGalleryItemId)?.public_url || galleryImages[0]?.public_url || '';
+  const heroImg = home.heroImageSource === 'GALLERY' ? (selectedGalleryImage || home.heroImage || '/images/hero.jpg') : (home.heroImage || selectedGalleryImage || (isModern ? '/images/hero.jpg' : ''));
   const portraitImg = instructor.portraitUrl || (isModern ? '/images/instructor.jpg' : '');
   return <>
     {home.announcement && <div className="announcement">{home.announcement}</div>}
     <section className="hero section-pad">
       <div className="hero-copy">
         <span className="eyebrow">{home.eyebrow || 'MOVE. FEEL. GROW.'}</span>
-        <h1>{home.heroTitle || 'לרקוד בביטחון. להשתחרר באמת.'}</h1>
+        <h1 className="hero-title-stack">
+          <span className={`hero-title-top hero-font-${String(home.heroTitleTopFont || 'BODY').toLowerCase()} hero-top-${String(home.heroTitleTopSize || 'MEDIUM').toLowerCase()}`}>{home.heroTitleTop || 'COME DANCE WITH'}</span>
+          <span className={`hero-title-main hero-font-${String(home.heroTitleMainFont || 'DISPLAY').toLowerCase()} hero-main-${String(home.heroTitleMainSize || 'XL').toLowerCase()} ${home.heroTitleMainBold === false ? '' : 'is-bold'}`}>{home.heroTitleMain || home.heroTitle || 'EDEN ZINO'}</span>
+        </h1>
         <p>{home.heroSubtitle || 'סדנאות ריקוד מקצועיות, אנרגטיות ומדויקות בהנחיית עדן זינו.'}</p>
         <div className="hero-actions"><Link className="button primary" to="/workshops">{home.ctaPrimary || 'לסדנאות הקרובות'} <ArrowLeft/></Link><Link className="button ghost" to="/workshops#code">{home.ctaSecondary || 'יש לי קוד סדנה'}</Link></div>
         <div className="trust-row"><span><ShieldCheck/> תשלום מאובטח</span><span><TicketCheck/> אישור מיידי</span><span><Users/> קבוצות מוגבלות</span></div>

@@ -2,7 +2,11 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 
 const db = new PGlite();
-for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql', 'db/migrations/0006_classic_color_palettes.sql', 'db/migrations/0007_gallery_library.sql']) {
+const migrationFiles = (await fs.readdir('db/migrations'))
+  .filter((file) => /^\d+_.*\.sql$/.test(file))
+  .sort()
+  .map((file) => `db/migrations/${file}`);
+for (const file of migrationFiles) {
   let sql = await fs.readFile(file, 'utf8');
   // PGlite includes gen_random_uuid but does not package the pgcrypto extension.
   sql = sql.replace(/create extension if not exists pgcrypto;?/ig, '');
@@ -81,6 +85,16 @@ await db.query('delete from uploaded_assets where id=$1', [galleryAsset.id]);
 const galleryCascade = (await db.query('select count(*)::int count from gallery_items where id=$1', [galleryItem.id])).rows[0].count;
 if (galleryCascade !== 0) throw new Error('gallery asset cascade deletion failed');
 console.log('✓ image/video gallery publishing and deletion schema');
+
+// v1.6: editable split Hero defaults and WhatsApp shutdown migration.
+const homeContent = (await db.query("select value from site_content where key='home'")).rows[0]?.value || {};
+if (homeContent.heroTitleTop !== 'COME DANCE WITH' || homeContent.heroTitleMain !== 'EDEN ZINO' || homeContent.heroImageSource !== 'GALLERY') throw new Error('hero editor defaults migration failed');
+await db.query("insert into notification_jobs(registration_id,channel,template_key,status) values($1,'WHATSAPP','TEST_DISABLED_WHATSAPP','PENDING')", [reserve.registration_id]);
+let whatsappMigration = await fs.readFile('db/migrations/0008_email_hero_and_whatsapp.sql', 'utf8');
+await db.exec(whatsappMigration);
+const whatsappState = (await db.query("select status from notification_jobs where template_key='TEST_DISABLED_WHATSAPP'")).rows[0]?.status;
+if (whatsappState !== 'CANCELLED') throw new Error('WhatsApp shutdown migration failed');
+console.log('✓ editable split Hero defaults and WhatsApp queue shutdown');
 
 // P0: truthful notification status must not masquerade as sent.
 await db.query("insert into notification_jobs(registration_id,channel,template_key,status,last_error) values($1,'EMAIL','TEST_CONFIGURATION','CONFIGURATION_ERROR','EMAIL_PROVIDER_NOT_CONFIGURED')", [reserve.registration_id]);

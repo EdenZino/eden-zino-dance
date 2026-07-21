@@ -1,48 +1,381 @@
+# ============================================================
+
+# Eden Zino Dance
+
+#
+
+# DEFAULT ENVIRONMENT = DEVELOPMENT
+
+# PRODUCTION ENV       = production
+
+#
+
+# Development deploy:
+
+# npx wrangler deploy
+
+#
+
+# Production deploy:
+
+# npx wrangler deploy --env production
+
+# ============================================================
+
+# ============================================================
+
+# COMMON / TOP-LEVEL CONFIGURATION
+
+# ============================================================
+
 name = "eden-zino-dance-il"
+
 main = "apps/api/src/index.ts"
+
 compatibility_date = "2026-07-01"
+
 compatibility_flags = ["nodejs_compat"]
 
+# ============================================================
+
+# DEVELOPMENT WORKER CONFIGURATION
+
+#
+
+# Default Worker:
+
+# eden-zino-dance-il
+
+#
+
+# URL:
+
+# https://eden-zino-dance-il.edenzino21.workers.dev
+
+# ============================================================
+
+workers_dev = true
+
+preview_urls = true
+
+# ============================================================
+
+# STATIC FRONTEND
+
+# ============================================================
+
 [assets]
+
 directory = "apps/web/dist"
+
 binding = "ASSETS"
+
 not_found_handling = "single-page-application"
 
-[[r2_buckets]]
-binding = "MEDIA"
-bucket_name = "eden-dance-media"
-preview_bucket_name = "eden-dance-media-preview"
+# ============================================================
+
+# DEVELOPMENT VARIABLES
+
+# ============================================================
 
 [vars]
+
+ENVIRONMENT = "development"
+
 PUBLIC_APP_URL = "https://eden-zino-dance-il.edenzino21.workers.dev"
+
+# ------------------------------------------------------------
+
+# Payments - DEVELOPMENT
+
+# ------------------------------------------------------------
+
 PAYMENT_PROVIDER = "mock"
-# Sandbox default. Replace with the live API base supplied by PayMe before production.
+
 PAYME_API_BASE = "https://sandbox.payme.io/api"
+
 PAYME_LANGUAGE = "he"
-# Leave empty to let the PayMe payment page show the methods enabled for the merchant.
+
 PAYME_PAYMENT_METHOD = ""
+
 PAYME_REFUND_PATH = "refund-sale"
+
+# ------------------------------------------------------------
+
+# Admin security - DEVELOPMENT
+
+# ------------------------------------------------------------
+
 ADMIN_EMAIL_OTP_REQUIRED = "true"
-# Public site key. Keep the matching secret in Cloudflare Secrets.
+
+# ------------------------------------------------------------
+
+# WhatsApp - DEVELOPMENT
+
+# ------------------------------------------------------------
+
+WHATSAPP_ENABLED = "false"
+
+# ------------------------------------------------------------
+
+# Cloudflare Turnstile - DEVELOPMENT
+
+#
+
+# Public key only.
+
+# Secret must be stored as a Cloudflare Secret.
+
+# ------------------------------------------------------------
+
 TURNSTILE_SITE_KEY = ""
-EMAIL_FROM = "Eden Zino <info@edenzino.com>"
+
+# ------------------------------------------------------------
+
+# Email - DEVELOPMENT
+
+# ------------------------------------------------------------
+
+EMAIL_FROM = "Eden Zino DEV [info@edenzino.com](mailto:info@edenzino.com)"
+
+# ------------------------------------------------------------
+
+# Legacy / optional Tranzila configuration
+
+# ------------------------------------------------------------
+
 TRANZILA_PAYMENT_BASE = "https://direct.tranzila.com"
 
+# ============================================================
+
+# DEVELOPMENT R2
+
+# ============================================================
+
+[[r2_buckets]]
+
+binding = "MEDIA"
+
+bucket_name = "eden-dance-media-preview"
+
+# ============================================================
+
+# DEVELOPMENT RATE LIMITS
+
+# ============================================================
+
 [[ratelimits]]
+
 name = "PUBLIC_RATE_LIMITER"
+
 namespace_id = "21001"
 
 [ratelimits.simple]
+
 limit = 120
+
 period = 60
 
 [[ratelimits]]
+
 name = "AUTH_RATE_LIMITER"
+
 namespace_id = "21002"
 
 [ratelimits.simple]
+
 limit = 10
+
 period = 60
 
+# ============================================================
+
+# DEVELOPMENT CRON JOBS
+
+# ============================================================
+
 [triggers]
-crons = ["*/5 * * * *", "0 8 * * *"]
+
+crons = [
+"*/5 * * * *",
+"0 8 * * *"
+]
+
+# ============================================================
+
+# PRODUCTION
+
+#
+
+# Cloudflare Worker:
+
+# eden-zino-dance-il-production
+
+#
+
+# Deploy:
+
+# npx wrangler deploy --env production
+
+# ============================================================
+
+[env.production]
+
+workers_dev = false
+
+preview_urls = false
+
+# ============================================================
+
+# PRODUCTION CUSTOM DOMAIN
+
+# ============================================================
+
+[[env.production.routes]]
+
+pattern = "[www.edenzino.com](http://www.edenzino.com)"
+
+custom_domain = true
+
+# ============================================================
+
+# PRODUCTION VARIABLES
+
+# ============================================================
+
+[env.production.vars]
+
+ENVIRONMENT = "production"
+
+PUBLIC_APP_URL = "https://www.edenzino.com"
+
+# ------------------------------------------------------------
+
+# Payments - PRODUCTION
+
+#
+
+# Keep mock during initial Production testing.
+
+#
+
+# Change to:
+
+#
+
+# PAYMENT_PROVIDER = "payme"
+
+#
+
+# only when real payments are ready.
+
+# ------------------------------------------------------------
+
+PAYMENT_PROVIDER = "mock"
+
+PAYME_API_BASE = "https://live.payme.io/api"
+
+PAYME_LANGUAGE = "he"
+
+PAYME_PAYMENT_METHOD = ""
+
+PAYME_REFUND_PATH = "refund-sale"
+
+# ------------------------------------------------------------
+
+# Admin security - PRODUCTION
+
+# ------------------------------------------------------------
+
+ADMIN_EMAIL_OTP_REQUIRED = "true"
+
+# ------------------------------------------------------------
+
+# WhatsApp - PRODUCTION
+
+# ------------------------------------------------------------
+
+WHATSAPP_ENABLED = "false"
+
+# ------------------------------------------------------------
+
+# Cloudflare Turnstile - PRODUCTION
+
+# ------------------------------------------------------------
+
+TURNSTILE_SITE_KEY = ""
+
+# ------------------------------------------------------------
+
+# Email - PRODUCTION
+
+# ------------------------------------------------------------
+
+EMAIL_FROM = "Eden Zino [info@edenzino.com](mailto:info@edenzino.com)"
+
+# ------------------------------------------------------------
+
+# Legacy / optional Tranzila configuration
+
+# ------------------------------------------------------------
+
+TRANZILA_PAYMENT_BASE = "https://direct.tranzila.com"
+
+# ============================================================
+
+# PRODUCTION R2
+
+# ============================================================
+
+[[env.production.r2_buckets]]
+
+binding = "MEDIA"
+
+bucket_name = "eden-dance-media"
+
+# ============================================================
+
+# PRODUCTION RATE LIMITS
+
+#
+
+# Separate namespace IDs from DEVELOPMENT.
+
+# ============================================================
+
+[[env.production.ratelimits]]
+
+name = "PUBLIC_RATE_LIMITER"
+
+namespace_id = "22001"
+
+[env.production.ratelimits.simple]
+
+limit = 120
+
+period = 60
+
+[[env.production.ratelimits]]
+
+name = "AUTH_RATE_LIMITER"
+
+namespace_id = "22002"
+
+[env.production.ratelimits.simple]
+
+limit = 10
+
+period = 60
+
+# ============================================================
+
+# PRODUCTION CRON JOBS
+
+# ============================================================
+
+[env.production.triggers]
+
+crons = [
+"*/5 * * * *",
+"0 8 * * *"
+]

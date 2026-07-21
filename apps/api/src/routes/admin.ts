@@ -633,7 +633,7 @@ admin.get('/production-readiness', requireRole('OWNER'), async (c) => {
   if(!c.env.TURNSTILE_SECRET_KEY||!c.env.TURNSTILE_SITE_KEY) blockers.push('TURNSTILE_NOT_CONFIGURED');
   if(String(c.env.ADMIN_EMAIL_OTP_REQUIRED??'true').toLowerCase()==='false') blockers.push('ADMIN_MFA_DISABLED');
   if(!c.env.INVOICE_WEBHOOK_URL) warnings.push('INVOICE_PROVIDER_NOT_CONFIGURED');
-  if(!c.env.WHATSAPP_WEBHOOK_URL) warnings.push('WHATSAPP_PROVIDER_NOT_CONFIGURED');
+  if(String(c.env.WHATSAPP_ENABLED??'false').toLowerCase()==='true'&&!c.env.WHATSAPP_WEBHOOK_URL) warnings.push('WHATSAPP_PROVIDER_NOT_CONFIGURED');
   return c.json({ready:blockers.length===0,blockers,warnings,checks:{paymentProvider:c.env.PAYMENT_PROVIDER,refundPath:c.env.PAYME_REFUND_PATH??'refund-sale',activeLegalDocuments:docs.map((d:any)=>({type:d.type,version:d.version,approvedAt:d.approved_at})),paymeVerification:{environment:activeProviderEnvironment,successfulPayments:Number(providerChecks.successful_payments||0),successfulRefunds:Number(providerChecks.successful_refunds||0),sandbox:String(c.env.PAYME_API_BASE??'').toLowerCase().includes('sandbox')}}});
 });
 

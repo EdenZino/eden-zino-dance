@@ -1,8 +1,8 @@
-# Eden Zino Dance Platform — 1.5.0
+# Eden Zino Dance Platform — 1.6.0
 
 Production-oriented, mobile-first workshop registration platform for Cloudflare Workers, React, Neon PostgreSQL and R2, with PayMe hosted-payment and refund orchestration.
 
-The code-side P0 security and money-flow gaps are closed. Release 1.5.0 adds a managed image/video gallery and unified status-badge alignment. Production remains deliberately blocked until the merchant completes real PayMe payment/refund verification, Turnstile and email configuration, business details, and legal approval.
+The code-side P0 security and money-flow gaps are closed. Release 1.6.0 adds branded email templates, WhatsApp opt-in disabling, a reliable workshop image picker, stronger workshop-detail typography, and a configurable split Hero headline with gallery-backed imagery. Production remains deliberately blocked until the merchant completes real PayMe payment/refund verification, Turnstile and email configuration, business details, and legal approval.
 
 The full setup guide is in [README_HE.md](README_HE.md). See [P0 closure report](docs/P0_CLOSURE_REPORT_HE.md) and [validation report](docs/VALIDATION_REPORT.md).
 

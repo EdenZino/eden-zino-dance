@@ -18,6 +18,7 @@ export interface Env {
   EMAIL_FROM?: string;
   INVOICE_WEBHOOK_URL?: string;
   INVOICE_WEBHOOK_SECRET?: string;
+  WHATSAPP_ENABLED?: string;
   WHATSAPP_WEBHOOK_URL?: string;
   WHATSAPP_WEBHOOK_SECRET?: string;
   CRON_SECRET?: string;
