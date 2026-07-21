@@ -221,7 +221,7 @@ crons = [
 
 [env.production]
 
-workers_dev = false
+workers_dev = true
 
 preview_urls = false
 
