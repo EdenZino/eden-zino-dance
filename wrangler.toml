@@ -136,7 +136,7 @@ TURNSTILE_SITE_KEY = ""
 
 # ------------------------------------------------------------
 
-EMAIL_FROM = "Eden Zino DEV [info@edenzino.com](mailto:info@edenzino.com)"
+EMAIL_FROM = "Eden Zino DEV <info@edenzino.com>"
 
 # ------------------------------------------------------------
 
@@ -227,18 +227,6 @@ preview_urls = false
 
 # ============================================================
 
-# PRODUCTION CUSTOM DOMAIN
-
-# ============================================================
-
-[[env.production.routes]]
-
-pattern = "[www.edenzino.com](http://www.edenzino.com)"
-
-custom_domain = true
-
-# ============================================================
-
 # PRODUCTION VARIABLES
 
 # ============================================================
@@ -248,6 +236,7 @@ custom_domain = true
 ENVIRONMENT = "production"
 
 PUBLIC_APP_URL = "https://www.edenzino.com"
+# PUBLIC_APP_URL = "https://eden-zino-dance-il-production.edenzino21.workers.dev"
 
 # ------------------------------------------------------------
 
@@ -311,7 +300,7 @@ TURNSTILE_SITE_KEY = ""
 
 # ------------------------------------------------------------
 
-EMAIL_FROM = "Eden Zino [info@edenzino.com](mailto:info@edenzino.com)"
+EMAIL_FROM = "Eden Zino <info@edenzino.com>"
 
 # ------------------------------------------------------------
 
