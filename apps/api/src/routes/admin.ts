@@ -7,6 +7,7 @@ import { verifyTurnstile } from '../lib/turnstile';
 import { brandedEmail, sendEmail } from '../services/notifications';
 import { cancelRefundAllocation, cancelRegistration, completeManualRefund, refundRegistration, retryRefund } from '../services/refunds';
 import type { AdminSession, Env } from '../types';
+import { mediaUrlFromKey, normalizeStoredMediaUrl, withRelativeAssetUrl } from '../lib/media';
 
 type Vars = { admin: AdminSession };
 const admin = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -146,6 +147,10 @@ const workshopSchema = z.object({
   seriesId: z.string().uuid().nullable().optional(), recurrenceLabel: z.string().max(120).default(''), recurrenceLabelEn: z.string().max(120).default(''),
   priceAgorot: z.number().int().min(0), earlyBirdPriceAgorot: z.number().int().min(0).nullable().optional(), earlyBirdEndsAt: z.string().nullable().optional(),
   depositAgorot: z.number().int().min(0).nullable().optional(), level: z.string().default(''), levelEn: z.string().default(''), audience: z.string().default(''), audienceEn: z.string().default(''), minimumAge: z.number().int().min(0).nullable().optional(),
+  accessibilityEntrance: z.enum(['UNKNOWN','YES','NO','NOT_APPLICABLE']).default('UNKNOWN'), accessibilityElevator: z.enum(['UNKNOWN','YES','NO','NOT_APPLICABLE']).default('UNKNOWN'),
+  accessibilityRestroom: z.enum(['UNKNOWN','YES','NO','NOT_APPLICABLE']).default('UNKNOWN'), accessibilityParking: z.enum(['UNKNOWN','YES','NO','NOT_APPLICABLE']).default('UNKNOWN'),
+  accessibilityPassages: z.string().max(1000).default(''), accessibilityPassagesEn: z.string().max(1000).default(''), accessibilityNotes: z.string().max(3000).default(''), accessibilityNotesEn: z.string().max(3000).default(''),
+  accessibilityVerifiedAt: z.string().nullable().optional(), accessibilitySource: z.string().max(500).default(''),
   allowWaitlist: z.boolean().default(true), allowCoupons: z.boolean().default(true), allowTransfers: z.boolean().default(true),
   status: z.enum(['DRAFT','PUBLISHED','FULL','CLOSED','CANCELLED','COMPLETED']).default('DRAFT'),
   cancellationPolicyVersion: z.string().default('DRAFT-1'), termsVersion: z.string().default('DRAFT-1'), privacyVersion: z.string().default('DRAFT-1'),
@@ -157,8 +162,8 @@ admin.post('/workshops', requireRole('OWNER','ADMIN'), async (c) => {
   const sql = db(c.env);
   const code = body.publicCode || `EZ${randomToken(5).slice(0,6).toUpperCase()}`;
   const actor = c.get('admin');
-  const inserted = await sql`insert into workshops(public_code,slug,title,title_en,short_description,short_description_en,full_description,full_description_en,image_url,gallery,location_name,location_name_en,location_address,location_address_en,map_url,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,min_participants,max_participants_per_order,price_agorot,early_bird_price_agorot,early_bird_ends_at,deposit_agorot,level,audience,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,cancellation_policy_version,terms_version,privacy_version,created_by,max_registrations_per_phone,balance_due_days_before,required_pass_credits,is_private,series_id,recurrence_label,recurrence_label_en,level_en,audience_en)
-    values(${code},${body.slug},${body.title},${body.titleEn || null},${body.shortDescription},${body.shortDescriptionEn || null},${body.fullDescription},${body.fullDescriptionEn || null},${body.imageUrl},${JSON.stringify(body.gallery)}::jsonb,${body.locationName},${body.locationNameEn || null},${body.locationAddress},${body.locationAddressEn || null},${body.mapUrl},${body.startsAt}::timestamptz,${body.endsAt}::timestamptz,${body.registrationOpensAt ?? null}::timestamptz,${body.registrationClosesAt ?? null}::timestamptz,${body.capacity},${body.minParticipants},${body.maxParticipantsPerOrder},${body.priceAgorot},${body.earlyBirdPriceAgorot ?? null},${body.earlyBirdEndsAt ?? null}::timestamptz,${body.depositAgorot ?? null},${body.level},${body.audience},${body.minimumAge ?? null},${body.allowWaitlist},${body.allowCoupons},${body.allowTransfers},${body.status},${body.cancellationPolicyVersion},${body.termsVersion},${body.privacyVersion},${actor.adminId}::uuid,${body.maxRegistrationsPerPhone},${body.balanceDueDaysBefore},${body.requiredPassCredits},${body.isPrivate},${body.seriesId ?? null}::uuid,${body.recurrenceLabel},${body.recurrenceLabelEn || null},${body.levelEn || null},${body.audienceEn || null}) returning *`;
+  const inserted = await sql`insert into workshops(public_code,slug,title,title_en,short_description,short_description_en,full_description,full_description_en,image_url,gallery,location_name,location_name_en,location_address,location_address_en,map_url,starts_at,ends_at,registration_opens_at,registration_closes_at,capacity,min_participants,max_participants_per_order,price_agorot,early_bird_price_agorot,early_bird_ends_at,deposit_agorot,level,audience,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,cancellation_policy_version,terms_version,privacy_version,created_by,max_registrations_per_phone,balance_due_days_before,required_pass_credits,is_private,series_id,recurrence_label,recurrence_label_en,level_en,audience_en,accessibility_entrance,accessibility_elevator,accessibility_restroom,accessibility_parking,accessibility_passages,accessibility_passages_en,accessibility_notes,accessibility_notes_en,accessibility_verified_at,accessibility_source)
+    values(${code},${body.slug},${body.title},${body.titleEn || null},${body.shortDescription},${body.shortDescriptionEn || null},${body.fullDescription},${body.fullDescriptionEn || null},${normalizeStoredMediaUrl(body.imageUrl)},${JSON.stringify(body.gallery.map(normalizeStoredMediaUrl))}::jsonb,${body.locationName},${body.locationNameEn || null},${body.locationAddress},${body.locationAddressEn || null},${body.mapUrl},${body.startsAt}::timestamptz,${body.endsAt}::timestamptz,${body.registrationOpensAt ?? null}::timestamptz,${body.registrationClosesAt ?? null}::timestamptz,${body.capacity},${body.minParticipants},${body.maxParticipantsPerOrder},${body.priceAgorot},${body.earlyBirdPriceAgorot ?? null},${body.earlyBirdEndsAt ?? null}::timestamptz,${body.depositAgorot ?? null},${body.level},${body.audience},${body.minimumAge ?? null},${body.allowWaitlist},${body.allowCoupons},${body.allowTransfers},${body.status},${body.cancellationPolicyVersion},${body.termsVersion},${body.privacyVersion},${actor.adminId}::uuid,${body.maxRegistrationsPerPhone},${body.balanceDueDaysBefore},${body.requiredPassCredits},${body.isPrivate},${body.seriesId ?? null}::uuid,${body.recurrenceLabel},${body.recurrenceLabelEn || null},${body.levelEn || null},${body.audienceEn || null},${body.accessibilityEntrance},${body.accessibilityElevator},${body.accessibilityRestroom},${body.accessibilityParking},${body.accessibilityPassages},${body.accessibilityPassagesEn || null},${body.accessibilityNotes},${body.accessibilityNotesEn || null},${body.accessibilityVerifiedAt ?? null}::timestamptz,${body.accessibilitySource}) returning *`;
   const workshop = inserted[0] as any;
   if (body.instructorIds.length) {
     for (const instructorId of body.instructorIds) await sql`insert into workshop_instructors(workshop_id,instructor_id) values(${workshop.id}::uuid,${instructorId}::uuid) on conflict do nothing`;
@@ -192,7 +197,7 @@ admin.patch('/workshops/:id', requireRole('OWNER','ADMIN'), async (c) => {
   const merged: any = { ...current,
     public_code: body.publicCode ?? current.public_code, slug: body.slug ?? current.slug, title: body.title ?? current.title, title_en: body.titleEn ?? current.title_en,
     short_description: body.shortDescription ?? current.short_description, short_description_en: body.shortDescriptionEn ?? current.short_description_en, full_description: body.fullDescription ?? current.full_description, full_description_en: body.fullDescriptionEn ?? current.full_description_en,
-    image_url: body.imageUrl ?? current.image_url, gallery: body.gallery ?? current.gallery, location_name: body.locationName ?? current.location_name, location_name_en: body.locationNameEn ?? current.location_name_en,
+    image_url: body.imageUrl === undefined ? current.image_url : normalizeStoredMediaUrl(body.imageUrl), gallery: body.gallery === undefined ? current.gallery : body.gallery.map(normalizeStoredMediaUrl), location_name: body.locationName ?? current.location_name, location_name_en: body.locationNameEn ?? current.location_name_en,
     location_address: body.locationAddress ?? current.location_address, location_address_en: body.locationAddressEn ?? current.location_address_en, map_url: body.mapUrl ?? current.map_url, starts_at: body.startsAt ?? current.starts_at,
     ends_at: body.endsAt ?? current.ends_at, registration_opens_at: body.registrationOpensAt === undefined ? current.registration_opens_at : body.registrationOpensAt,
     registration_closes_at: body.registrationClosesAt === undefined ? current.registration_closes_at : body.registrationClosesAt,
@@ -202,6 +207,7 @@ admin.patch('/workshops/:id', requireRole('OWNER','ADMIN'), async (c) => {
     early_bird_ends_at: body.earlyBirdEndsAt === undefined ? current.early_bird_ends_at : body.earlyBirdEndsAt,
     deposit_agorot: body.depositAgorot === undefined ? current.deposit_agorot : body.depositAgorot, level: body.level ?? current.level, level_en: body.levelEn ?? current.level_en,
     audience: body.audience ?? current.audience, audience_en: body.audienceEn ?? current.audience_en, minimum_age: body.minimumAge === undefined ? current.minimum_age : body.minimumAge,
+    accessibility_entrance: body.accessibilityEntrance ?? current.accessibility_entrance, accessibility_elevator: body.accessibilityElevator ?? current.accessibility_elevator, accessibility_restroom: body.accessibilityRestroom ?? current.accessibility_restroom, accessibility_parking: body.accessibilityParking ?? current.accessibility_parking, accessibility_passages: body.accessibilityPassages ?? current.accessibility_passages, accessibility_passages_en: body.accessibilityPassagesEn ?? current.accessibility_passages_en, accessibility_notes: body.accessibilityNotes ?? current.accessibility_notes, accessibility_notes_en: body.accessibilityNotesEn ?? current.accessibility_notes_en, accessibility_verified_at: body.accessibilityVerifiedAt === undefined ? current.accessibility_verified_at : body.accessibilityVerifiedAt, accessibility_source: body.accessibilitySource ?? current.accessibility_source,
     allow_waitlist: body.allowWaitlist ?? current.allow_waitlist, allow_coupons: body.allowCoupons ?? current.allow_coupons,
     allow_transfers: body.allowTransfers ?? current.allow_transfers, status: body.status ?? current.status,
     cancellation_policy_version: body.cancellationPolicyVersion ?? current.cancellation_policy_version,
@@ -209,7 +215,7 @@ admin.patch('/workshops/:id', requireRole('OWNER','ADMIN'), async (c) => {
     balance_due_days_before: body.balanceDueDaysBefore ?? current.balance_due_days_before, required_pass_credits: body.requiredPassCredits ?? current.required_pass_credits,
     is_private: body.isPrivate ?? current.is_private, series_id: body.seriesId === undefined ? current.series_id : body.seriesId, recurrence_label: body.recurrenceLabel ?? current.recurrence_label, recurrence_label_en: body.recurrenceLabelEn ?? current.recurrence_label_en,
   };
-  const updated = await sql`update workshops set public_code=${merged.public_code},slug=${merged.slug},title=${merged.title},title_en=${merged.title_en},short_description=${merged.short_description},short_description_en=${merged.short_description_en},full_description=${merged.full_description},full_description_en=${merged.full_description_en},image_url=${merged.image_url},gallery=${JSON.stringify(merged.gallery)}::jsonb,location_name=${merged.location_name},location_name_en=${merged.location_name_en},location_address=${merged.location_address},location_address_en=${merged.location_address_en},map_url=${merged.map_url},starts_at=${merged.starts_at}::timestamptz,ends_at=${merged.ends_at}::timestamptz,registration_opens_at=${merged.registration_opens_at}::timestamptz,registration_closes_at=${merged.registration_closes_at}::timestamptz,capacity=${merged.capacity},min_participants=${merged.min_participants},max_participants_per_order=${merged.max_participants_per_order},price_agorot=${merged.price_agorot},early_bird_price_agorot=${merged.early_bird_price_agorot},early_bird_ends_at=${merged.early_bird_ends_at}::timestamptz,deposit_agorot=${merged.deposit_agorot},level=${merged.level},level_en=${merged.level_en},audience=${merged.audience},audience_en=${merged.audience_en},minimum_age=${merged.minimum_age},allow_waitlist=${merged.allow_waitlist},allow_coupons=${merged.allow_coupons},allow_transfers=${merged.allow_transfers},status=${merged.status},cancellation_policy_version=${merged.cancellation_policy_version},terms_version=${merged.terms_version},privacy_version=${merged.privacy_version},max_registrations_per_phone=${merged.max_registrations_per_phone},balance_due_days_before=${merged.balance_due_days_before},required_pass_credits=${merged.required_pass_credits},is_private=${merged.is_private},series_id=${merged.series_id}::uuid,recurrence_label=${merged.recurrence_label},recurrence_label_en=${merged.recurrence_label_en},updated_at=now() where id=${id}::uuid returning *`;
+  const updated = await sql`update workshops set public_code=${merged.public_code},slug=${merged.slug},title=${merged.title},title_en=${merged.title_en},short_description=${merged.short_description},short_description_en=${merged.short_description_en},full_description=${merged.full_description},full_description_en=${merged.full_description_en},image_url=${merged.image_url},gallery=${JSON.stringify(merged.gallery)}::jsonb,location_name=${merged.location_name},location_name_en=${merged.location_name_en},location_address=${merged.location_address},location_address_en=${merged.location_address_en},map_url=${merged.map_url},starts_at=${merged.starts_at}::timestamptz,ends_at=${merged.ends_at}::timestamptz,registration_opens_at=${merged.registration_opens_at}::timestamptz,registration_closes_at=${merged.registration_closes_at}::timestamptz,capacity=${merged.capacity},min_participants=${merged.min_participants},max_participants_per_order=${merged.max_participants_per_order},price_agorot=${merged.price_agorot},early_bird_price_agorot=${merged.early_bird_price_agorot},early_bird_ends_at=${merged.early_bird_ends_at}::timestamptz,deposit_agorot=${merged.deposit_agorot},level=${merged.level},level_en=${merged.level_en},audience=${merged.audience},audience_en=${merged.audience_en},minimum_age=${merged.minimum_age},allow_waitlist=${merged.allow_waitlist},allow_coupons=${merged.allow_coupons},allow_transfers=${merged.allow_transfers},status=${merged.status},cancellation_policy_version=${merged.cancellation_policy_version},terms_version=${merged.terms_version},privacy_version=${merged.privacy_version},max_registrations_per_phone=${merged.max_registrations_per_phone},balance_due_days_before=${merged.balance_due_days_before},required_pass_credits=${merged.required_pass_credits},is_private=${merged.is_private},series_id=${merged.series_id}::uuid,recurrence_label=${merged.recurrence_label},recurrence_label_en=${merged.recurrence_label_en},accessibility_entrance=${merged.accessibility_entrance},accessibility_elevator=${merged.accessibility_elevator},accessibility_restroom=${merged.accessibility_restroom},accessibility_parking=${merged.accessibility_parking},accessibility_passages=${merged.accessibility_passages},accessibility_passages_en=${merged.accessibility_passages_en},accessibility_notes=${merged.accessibility_notes},accessibility_notes_en=${merged.accessibility_notes_en},accessibility_verified_at=${merged.accessibility_verified_at}::timestamptz,accessibility_source=${merged.accessibility_source},updated_at=now() where id=${id}::uuid returning *`;
   if (body.instructorIds) {
     await sql`delete from workshop_instructors where workshop_id=${id}::uuid`;
     for (const instructorId of body.instructorIds) await sql`insert into workshop_instructors(workshop_id,instructor_id) values(${id}::uuid,${instructorId}::uuid)`;
@@ -235,13 +241,13 @@ admin.post('/workshops/:id/duplicate', requireRole('OWNER','ADMIN'), async (c) =
     location_name,location_name_en,location_address,location_address_en,map_url,starts_at,ends_at,registration_opens_at,registration_closes_at,
     capacity,min_participants,max_participants_per_order,max_registrations_per_phone,price_agorot,early_bird_price_agorot,early_bird_ends_at,
     deposit_agorot,level,level_en,audience,audience_en,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,
-    cancellation_policy_version,terms_version,privacy_version,created_by,balance_due_days_before,required_pass_credits,is_private,series_id,recurrence_label,recurrence_label_en
+    cancellation_policy_version,terms_version,privacy_version,created_by,balance_due_days_before,required_pass_credits,is_private,series_id,recurrence_label,recurrence_label_en,accessibility_entrance,accessibility_elevator,accessibility_restroom,accessibility_parking,accessibility_passages,accessibility_passages_en,accessibility_notes,accessibility_notes_en,accessibility_verified_at,accessibility_source
   ) values(
     ${code},${`${w.slug}-copy-${Date.now()}`},${`${w.title} — עותק`},${w.title_en},${w.short_description},${w.short_description_en},${w.full_description},${w.full_description_en},${w.image_url},${JSON.stringify(w.gallery)}::jsonb,
     ${w.location_name},${w.location_name_en},${w.location_address},${w.location_address_en},${w.map_url},${w.starts_at}::timestamptz,${w.ends_at}::timestamptz,${w.registration_opens_at}::timestamptz,${w.registration_closes_at}::timestamptz,
     ${w.capacity},${w.min_participants},${w.max_participants_per_order},${w.max_registrations_per_phone},${w.price_agorot},${w.early_bird_price_agorot},${w.early_bird_ends_at}::timestamptz,
     ${w.deposit_agorot},${w.level},${w.level_en},${w.audience},${w.audience_en},${w.minimum_age},${w.allow_waitlist},${w.allow_coupons},${w.allow_transfers},'DRAFT',
-    ${w.cancellation_policy_version},${w.terms_version},${w.privacy_version},${c.get('admin').adminId}::uuid,${w.balance_due_days_before},${w.required_pass_credits},${w.is_private},${w.series_id}::uuid,${w.recurrence_label},${w.recurrence_label_en}
+    ${w.cancellation_policy_version},${w.terms_version},${w.privacy_version},${c.get('admin').adminId}::uuid,${w.balance_due_days_before},${w.required_pass_credits},${w.is_private},${w.series_id}::uuid,${w.recurrence_label},${w.recurrence_label_en},${w.accessibility_entrance},${w.accessibility_elevator},${w.accessibility_restroom},${w.accessibility_parking},${w.accessibility_passages},${w.accessibility_passages_en},${w.accessibility_notes},${w.accessibility_notes_en},${w.accessibility_verified_at}::timestamptz,${w.accessibility_source}
   ) returning *`;
   return c.json({ workshop: copy[0] }, 201);
 });
@@ -348,22 +354,25 @@ admin.post('/coupons', requireRole('OWNER','ADMIN'), async (c) => {
 
 admin.get('/content', async (c) => c.json({ content: Object.fromEntries((await db(c.env)`select key,value from site_content`).map((r: any) => [r.key,r.value])) }));
 admin.put('/content/:key', requireRole('OWNER','ADMIN'), async (c) => {
-  const key = c.req.param('key'); const value = await c.req.json();
-  await db(c.env)`insert into site_content(key,value,updated_at) values(${key},${JSON.stringify(value)}::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()`;
+  const key = c.req.param('key'); const value = await c.req.json() as Record<string, unknown>;
+  const normalized = { ...value };
+  if (key === 'home' && typeof normalized.heroImage === 'string') normalized.heroImage = normalizeStoredMediaUrl(normalized.heroImage);
+  if (key === 'instructor' && typeof normalized.portraitUrl === 'string') normalized.portraitUrl = normalizeStoredMediaUrl(normalized.portraitUrl);
+  await db(c.env)`insert into site_content(key,value,updated_at) values(${key},${JSON.stringify(normalized)}::jsonb,now()) on conflict(key) do update set value=excluded.value,updated_at=now()`;
   return c.json({ ok: true });
 });
 
 admin.get('/settings', async (c) => c.json({ settings: (await db(c.env)`select * from business_settings where singleton=true`)[0] }));
 admin.put('/settings', requireRole('OWNER'), async (c) => {
-  const input = z.object({ businessName: z.string(), legalBusinessName: z.string(), businessNumber: z.string(), contactEmail: z.string(), contactPhone: z.string(), address: z.string(), instagramUrl: z.string(), defaultHoldMinutes: z.number().int().min(3).max(60), retentionMonths: z.number().int().min(1).max(120), publicTheme: z.enum(['CLASSIC','MODERN']).default('CLASSIC'), classicPalette: z.enum(['ROSIN','PLUM','OCEAN','SAGE','MIDNIGHT']).default('ROSIN') }).parse(await c.req.json());
-  const row = await db(c.env)`update business_settings set business_name=${input.businessName},legal_business_name=${input.legalBusinessName},business_number=${input.businessNumber},contact_email=${input.contactEmail},contact_phone=${input.contactPhone},address=${input.address},instagram_url=${input.instagramUrl},default_hold_minutes=${input.defaultHoldMinutes},retention_months=${input.retentionMonths},public_theme=${input.publicTheme},classic_palette=${input.classicPalette},updated_at=now() where singleton=true returning *`;
+  const input = z.object({ businessName: z.string(), legalBusinessName: z.string(), businessNumber: z.string(), contactEmail: z.string(), contactPhone: z.string(), address: z.string(), instagramUrl: z.string(), defaultHoldMinutes: z.number().int().min(3).max(60), retentionMonths: z.number().int().min(1).max(120), publicTheme: z.enum(['CLASSIC','MODERN']).default('CLASSIC'), classicPalette: z.enum(['ROSIN','PLUM','OCEAN','SAGE','MIDNIGHT']).default('ROSIN'), accessibilityContactName: z.string().default(''), accessibilityEmail: z.string().default(''), accessibilityPhone: z.string().default(''), mailingAddress: z.string().default(''), mailingAddressEn: z.string().default(''), accessibilityKnownLimitations: z.string().default(''), accessibilityKnownLimitationsEn: z.string().default('') }).parse(await c.req.json());
+  const row = await db(c.env)`update business_settings set business_name=${input.businessName},legal_business_name=${input.legalBusinessName},business_number=${input.businessNumber},contact_email=${input.contactEmail},contact_phone=${input.contactPhone},address=${input.address},instagram_url=${input.instagramUrl},default_hold_minutes=${input.defaultHoldMinutes},retention_months=${input.retentionMonths},public_theme=${input.publicTheme},classic_palette=${input.classicPalette},accessibility_contact_name=${input.accessibilityContactName},accessibility_email=${input.accessibilityEmail},accessibility_phone=${input.accessibilityPhone},mailing_address=${input.mailingAddress},mailing_address_en=${input.mailingAddressEn},accessibility_known_limitations=${input.accessibilityKnownLimitations},accessibility_known_limitations_en=${input.accessibilityKnownLimitationsEn},updated_at=now() where singleton=true returning *`;
   return c.json({ settings: row[0] });
 });
 
 admin.get('/instructors', async (c) => c.json({ instructors: await db(c.env)`select * from instructors order by name` }));
 admin.post('/instructors', requireRole('OWNER','ADMIN'), async (c) => {
   const input = z.object({ name: z.string(), nameEn: z.string().default(''), bio: z.string().default(''), bioEn: z.string().default(''), imageUrl: z.string().default(''), instagramUrl: z.string().default(''), isActive: z.boolean().default(true) }).parse(await c.req.json());
-  const row = await db(c.env)`insert into instructors(name,name_en,bio,bio_en,image_url,instagram_url,is_active) values(${input.name},${input.nameEn || null},${input.bio},${input.bioEn || null},${input.imageUrl},${input.instagramUrl},${input.isActive}) returning *`;
+  const row = await db(c.env)`insert into instructors(name,name_en,bio,bio_en,image_url,instagram_url,is_active) values(${input.name},${input.nameEn || null},${input.bio},${input.bioEn || null},${normalizeStoredMediaUrl(input.imageUrl)},${input.instagramUrl},${input.isActive}) returning *`;
   return c.json({ instructor: row[0] }, 201);
 });
 
@@ -399,11 +408,11 @@ async function storeAsset(c: any, file: File, folder: string, mode: 'IMAGE_ONLY'
     httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' },
     customMetadata: { originalName: file.name, uploadedAt: new Date().toISOString() },
   });
-  const publicUrl = `${String(c.env.PUBLIC_APP_URL).replace(/\/$/, '')}/api/media/${encodeURIComponent(key)}`;
+  const publicUrl = mediaUrlFromKey(key);
   const actor = c.get('admin');
   const rows = await db(c.env)`insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by)
     values(${key},${publicUrl},${file.name},${type},${file.size},${actor.adminId}::uuid) returning *`;
-  return { asset: rows[0] as any, mediaType: isVideo ? 'VIDEO' : 'IMAGE' };
+  return { asset: withRelativeAssetUrl(rows[0] as any), mediaType: isVideo ? 'VIDEO' : 'IMAGE' };
 }
 
 admin.post('/uploads', requireRole('OWNER','ADMIN'), async (c) => {
@@ -420,11 +429,11 @@ admin.post('/uploads', requireRole('OWNER','ADMIN'), async (c) => {
 });
 
 admin.get('/gallery', async (c) => {
-  const items = await db(c.env)`select g.id,g.media_type,g.title,g.title_en,g.caption,g.caption_en,g.alt_text,g.alt_text_en,g.display_order,g.is_published,g.created_at,g.updated_at,
-    a.id asset_id,a.public_url,a.file_name,a.content_type,a.size_bytes
+  const rows = await db(c.env)`select g.id,g.media_type,g.title,g.title_en,g.caption,g.caption_en,g.alt_text,g.alt_text_en,g.display_order,g.is_published,g.created_at,g.updated_at,
+    a.id asset_id,a.object_key,a.public_url,a.file_name,a.content_type,a.size_bytes
     from gallery_items g join uploaded_assets a on a.id=g.asset_id
     order by g.display_order asc,g.created_at desc`;
-  return c.json({ items });
+  return c.json({ items: rows.map((row: any) => withRelativeAssetUrl(row)) });
 });
 
 admin.post('/gallery', requireRole('OWNER','ADMIN'), async (c) => {
@@ -444,7 +453,7 @@ admin.post('/gallery', requireRole('OWNER','ADMIN'), async (c) => {
     const rows = await db(c.env)`insert into gallery_items(asset_id,media_type,title,title_en,caption,caption_en,alt_text,alt_text_en,display_order,is_published,created_by)
       values(${stored.asset.id}::uuid,${stored.mediaType},${title},${titleEn || null},${caption},${captionEn || null},${altText},${altTextEn || null},${displayOrder},${isPublished},${actor.adminId}::uuid)
       returning *`;
-    const item = { ...(rows[0] as any), asset_id: stored.asset.id, public_url: stored.asset.public_url, file_name: stored.asset.file_name, content_type: stored.asset.content_type, size_bytes: stored.asset.size_bytes };
+    const item = { ...(rows[0] as any), asset_id: stored.asset.id, object_key: stored.asset.object_key, public_url: mediaUrlFromKey(String(stored.asset.object_key)), file_name: stored.asset.file_name, content_type: stored.asset.content_type, size_bytes: stored.asset.size_bytes };
     await db(c.env)`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value,ip_address)
       values(${actor.adminId}::uuid,'CREATE','GALLERY_ITEM',${String((rows[0] as any).id)},${JSON.stringify(item)}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
     return c.json({ item }, 201);
@@ -485,6 +494,21 @@ admin.delete('/gallery/:id', requireRole('OWNER','ADMIN'), async (c) => {
   await sql`insert into audit_logs(admin_id,action,entity_type,entity_id,old_value,ip_address)
     values(${actor.adminId}::uuid,'DELETE','GALLERY_ITEM',${id},${JSON.stringify(item)}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
   return c.json({ ok: true });
+});
+
+
+admin.get('/media/integrity', requireRole('OWNER','ADMIN'), async (c) => {
+  const rows = await db(c.env)`select id,object_key,public_url,file_name,content_type,size_bytes,created_at from uploaded_assets order by created_at desc limit 1000`;
+  const missing: any[] = [];
+  const present: any[] = [];
+  for (const row of rows as any[]) {
+    const key = String(row.object_key || '');
+    if (!key) { missing.push({ ...row, reason: 'MISSING_OBJECT_KEY' }); continue; }
+    const object = await c.env.MEDIA.head(key);
+    const item = { ...withRelativeAssetUrl(row), exists: Boolean(object) };
+    if (object) present.push(item); else missing.push({ ...item, reason: 'NOT_FOUND_IN_BOUND_R2_BUCKET' });
+  }
+  return c.json({ checked: rows.length, present: present.length, missingCount: missing.length, missing });
 });
 
 admin.get('/reports/summary', async (c) => {
@@ -579,12 +603,12 @@ admin.post('/series/:id/generate', requireRole('OWNER','ADMIN'), async (c) => {
       public_code,slug,title,title_en,short_description,short_description_en,full_description,full_description_en,image_url,gallery,
       location_name,location_name_en,location_address,location_address_en,map_url,starts_at,ends_at,capacity,min_participants,max_participants_per_order,
       price_agorot,early_bird_price_agorot,deposit_agorot,level,level_en,audience,audience_en,minimum_age,allow_waitlist,allow_coupons,allow_transfers,status,
-      cancellation_policy_version,terms_version,privacy_version,created_by,series_id,recurrence_label,recurrence_label_en,max_registrations_per_phone,balance_due_days_before,is_private,required_pass_credits
+      cancellation_policy_version,terms_version,privacy_version,created_by,series_id,recurrence_label,recurrence_label_en,max_registrations_per_phone,balance_due_days_before,is_private,required_pass_credits,accessibility_entrance,accessibility_elevator,accessibility_restroom,accessibility_parking,accessibility_passages,accessibility_passages_en,accessibility_notes,accessibility_notes_en,accessibility_verified_at,accessibility_source
     ) values(
       ${code},${slug},${source.title},${source.title_en},${source.short_description},${source.short_description_en},${source.full_description},${source.full_description_en},${source.image_url},${JSON.stringify(source.gallery)}::jsonb,
       ${source.location_name},${source.location_name_en},${source.location_address},${source.location_address_en},${source.map_url},${occurrence.startsAt}::timestamptz,${occurrence.endsAt}::timestamptz,${source.capacity},${source.min_participants},${source.max_participants_per_order},
       ${source.price_agorot},${source.early_bird_price_agorot},${source.deposit_agorot},${source.level},${source.level_en},${source.audience},${source.audience_en},${source.minimum_age},${source.allow_waitlist},${source.allow_coupons},${source.allow_transfers},'DRAFT',
-      ${source.cancellation_policy_version},${source.terms_version},${source.privacy_version},${c.get('admin').adminId}::uuid,${seriesId}::uuid,${occurrence.recurrenceLabel},${source.recurrence_label_en},${source.max_registrations_per_phone},${source.balance_due_days_before},${source.is_private},${source.required_pass_credits}
+      ${source.cancellation_policy_version},${source.terms_version},${source.privacy_version},${c.get('admin').adminId}::uuid,${seriesId}::uuid,${occurrence.recurrenceLabel},${source.recurrence_label_en},${source.max_registrations_per_phone},${source.balance_due_days_before},${source.is_private},${source.required_pass_credits},${source.accessibility_entrance},${source.accessibility_elevator},${source.accessibility_restroom},${source.accessibility_parking},${source.accessibility_passages},${source.accessibility_passages_en},${source.accessibility_notes},${source.accessibility_notes_en},${source.accessibility_verified_at}::timestamptz,${source.accessibility_source}
     ) returning *`;
     const workshop=rows[0] as any;created.push(workshop);
     await sql`insert into workshop_instructors(workshop_id,instructor_id,revenue_share_percent) select ${workshop.id}::uuid,instructor_id,revenue_share_percent from workshop_instructors where workshop_id=${source.id}::uuid`;
@@ -643,8 +667,13 @@ admin.get('/production-readiness', requireRole('OWNER'), async (c) => {
   const blockers:string[]=[];const warnings:string[]=[];
   if(!business.legal_business_name||!business.business_number||!business.contact_email||!business.contact_phone) blockers.push('BUSINESS_DETAILS_INCOMPLETE');
   for(const type of ['TERMS','PRIVACY','CANCELLATION','ACCESSIBILITY']){
-    const doc=docs.find((d:any)=>d.type===type);if(!doc||!doc.approved_at||String(doc.version).includes('DRAFT')||String(doc.content).includes('השלימ')) blockers.push(`LEGAL_${type}_NOT_APPROVED`);
+    const doc=docs.find((d:any)=>d.type===type);
+    const incompleteTemplate=type!=='ACCESSIBILITY'&&String(doc?.content??'').includes('השלימ');
+    if(!doc||!doc.approved_at||String(doc.version).includes('DRAFT')||incompleteTemplate) blockers.push(`LEGAL_${type}_NOT_APPROVED`);
   }
+  if(!business.accessibility_contact_name||!business.accessibility_email||!business.accessibility_phone||!business.mailing_address) blockers.push('ACCESSIBILITY_CONTACT_DETAILS_INCOMPLETE');
+  if(!business.accessibility_known_limitations) blockers.push('ACCESSIBILITY_LIMITATIONS_NOT_REVIEWED');
+  if(!business.mailing_address_en||!business.accessibility_known_limitations_en) warnings.push('ACCESSIBILITY_ENGLISH_DETAILS_INCOMPLETE');
   if(c.env.PAYMENT_PROVIDER==='payme'){
     if(!c.env.PAYME_SELLER_ID||!c.env.PAYME_CLIENT_KEY||!c.env.PAYME_CALLBACK_SECRET) blockers.push('PAYME_CONFIGURATION_INCOMPLETE');
     if(String(c.env.PAYME_API_BASE??'').toLowerCase().includes('sandbox')) blockers.push('PAYME_SANDBOX_MODE_ACTIVE');

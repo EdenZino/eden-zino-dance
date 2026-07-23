@@ -5,6 +5,8 @@ export interface Workshop {
   capacity: number; available: number; occupied?: number; price_agorot: number; early_bird_price_agorot?: number | null;
   early_bird_ends_at?: string | null; deposit_agorot?: number | null; currency: string; level: string; level_en?: string; audience: string; audience_en?: string; recurrence_label_en?: string;
   minimum_age?: number | null; max_participants_per_order: number; allow_waitlist: boolean; status: string;
+  accessibility_entrance?: 'UNKNOWN'|'YES'|'NO'|'NOT_APPLICABLE'; accessibility_elevator?: 'UNKNOWN'|'YES'|'NO'|'NOT_APPLICABLE'; accessibility_restroom?: 'UNKNOWN'|'YES'|'NO'|'NOT_APPLICABLE'; accessibility_parking?: 'UNKNOWN'|'YES'|'NO'|'NOT_APPLICABLE';
+  accessibility_passages?: string; accessibility_passages_en?: string; accessibility_notes?: string; accessibility_notes_en?: string; accessibility_verified_at?: string | null; accessibility_source?: string;
   terms_version: string; privacy_version: string; cancellation_policy_version: string;
   instructors?: Array<{ id: string; name: string; name_en?: string; bio?: string; bio_en?: string; imageUrl?: string; instagramUrl?: string }>;
 }
@@ -28,6 +30,7 @@ export interface GalleryItem {
   alt_text_en?: string;
   display_order: number;
   is_published?: boolean;
+  object_key?: string;
   public_url: string;
   file_name: string;
   content_type: string;

@@ -15,7 +15,7 @@ export function Brand({ onNavigate }: { onNavigate?: () => void } = {}) {
 
 function LanguageSwitch({ compact=false }: { compact?: boolean }) {
   const { language, setLanguage, t } = useLanguage();
-  return <div className={`language-switch${compact?' compact':''}`} aria-label={t('בחירת שפה','Language selector')}><Languages size={17} aria-hidden="true"/><button type="button" className={language==='he'?'active':''} onClick={()=>setLanguage('he')} aria-pressed={language==='he'}>HE</button><span>/</span><button type="button" className={language==='en'?'active':''} onClick={()=>setLanguage('en')} aria-pressed={language==='en'}>EN</button></div>;
+  return <div className={`language-switch${compact?' compact':''}`} role="group" aria-label={t('בחירת שפה','Language selector')}><Languages size={17} aria-hidden="true"/><button type="button" className={language==='he'?'active':''} onClick={()=>setLanguage('he')} aria-pressed={language==='he'}>HE</button><span>/</span><button type="button" className={language==='en'?'active':''} onClick={()=>setLanguage('en')} aria-pressed={language==='en'}>EN</button></div>;
 }
 
 function NavigationLinks({ instagram, onNavigate }: { instagram: string; onNavigate?: () => void }) {

@@ -7,6 +7,7 @@ import { createCustomerSession, destroyCustomerSession, getCustomerEmail, public
 import { randomToken, sha256 } from '../lib/crypto';
 import { verifyTurnstile } from '../lib/turnstile';
 import type { Env } from '../types';
+import { withRelativeAssetUrl } from '../lib/media';
 
 const publicRoutes = new Hono<{ Bindings: Env }>();
 
@@ -68,7 +69,7 @@ async function loadPortalData(env: Env, email: string) {
 publicRoutes.get('/site', async (c) => {
   const sql = db(c.env);
   const [settings, content, legal] = await Promise.all([
-    sql`select business_name, contact_email, contact_phone, address, instagram_url, default_currency, timezone, public_theme, classic_palette from business_settings where singleton = true`,
+    sql`select business_name, contact_email, contact_phone, address, instagram_url, default_currency, timezone, public_theme, classic_palette,accessibility_contact_name,accessibility_email,accessibility_phone,mailing_address,mailing_address_en,accessibility_known_limitations,accessibility_known_limitations_en from business_settings where singleton = true`,
     sql`select key, value from site_content`,
     sql`select type, version, title, title_en, content, content_en from legal_documents where is_active = true order by published_at desc`,
   ]);
@@ -81,11 +82,11 @@ publicRoutes.get('/site', async (c) => {
 });
 
 publicRoutes.get('/gallery', async (c) => {
-  const items = await db(c.env)`select g.id,g.media_type,g.title,g.title_en,g.caption,g.caption_en,g.alt_text,g.alt_text_en,g.display_order,g.created_at,
-    a.public_url,a.file_name,a.content_type,a.size_bytes
+  const rows = await db(c.env)`select g.id,g.media_type,g.title,g.title_en,g.caption,g.caption_en,g.alt_text,g.alt_text_en,g.display_order,g.created_at,
+    a.object_key,a.public_url,a.file_name,a.content_type,a.size_bytes
     from gallery_items g join uploaded_assets a on a.id=g.asset_id
     where g.is_published=true order by g.display_order asc,g.created_at desc`;
-  return c.json({ items });
+  return c.json({ items: rows.map((row: any) => withRelativeAssetUrl(row)) });
 });
 
 publicRoutes.get('/workshops', async (c) => {
