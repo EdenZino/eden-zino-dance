@@ -1,116 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Search } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Workshop } from '../lib/types';
 import { WORKSHOP_LEVELS } from '../lib/workshopLevels';
 import { WorkshopCard } from '../components/WorkshopCard';
 import { ErrorBox, Loading } from '../components/Loading';
+import { useLanguage } from '../lib/language';
 
-export function WorkshopsPage() {
-  const query = useQuery({
-    queryKey: ['workshops'],
-    queryFn: () => api<{ workshops: Workshop[] }>('/public/workshops'),
-  });
-  const [search, setSearch] = useState('');
-  const [level, setLevel] = useState('');
-
-  const workshops = query.data?.workshops || [];
-
-  const levels = useMemo(() => {
-    const configured = workshops
-      .map((workshop) => workshop.level?.trim())
-      .filter((value): value is string => Boolean(value));
-    const custom = configured.filter(
-      (value) => !(WORKSHOP_LEVELS as readonly string[]).includes(value),
-    );
-    return [...WORKSHOP_LEVELS, ...new Set(custom)];
-  }, [workshops]);
-
-  const items = useMemo(
-    () => workshops.filter((workshop) => {
-      const matchesSearch = !search || `${workshop.title} ${workshop.location_name} ${workshop.short_description}`
-        .toLowerCase()
-        .includes(search.toLowerCase());
-      const workshopLevel = workshop.level?.trim() || 'פתוח לכל הרמות';
-      return matchesSearch && (!level || workshopLevel === level);
-    }),
-    [workshops, search, level],
-  );
-
-  return (
-    <div className="page-wrap section-pad">
-      <div className="page-hero">
-        <span className="eyebrow">WORKSHOPS</span>
-        <h1>בחרו את הסדנה שלכם</h1>
-        <p>קבוצות מדויקות, יחס אישי וחוויה שממשיכה גם אחרי שהמוזיקה נעצרת.</p>
-      </div>
-
-      <div className="filter-bar" role="search" aria-label="סינון סדנאות">
-        <label className="search-field">
-          <span className="sr-only">חיפוש סדנה</span>
-          <Search aria-hidden="true" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="חיפוש לפי שם או מיקום"
-            type="search"
-          />
-        </label>
-        <label className="level-field">
-          <span className="sr-only">סינון לפי רמה</span>
-          <select
-            className="level-filter"
-            value={level}
-            onChange={(event) => setLevel(event.target.value)}
-          >
-            <option value="">כל הרמות</option>
-            {levels.map((workshopLevel) => (
-              <option key={workshopLevel} value={workshopLevel}>{workshopLevel}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {query.isLoading ? (
-        <Loading />
-      ) : query.error ? (
-        <ErrorBox error={query.error} />
-      ) : items.length ? (
-        <div className="workshop-grid light-grid">
-          {items.map((workshop) => <WorkshopCard key={workshop.id} workshop={workshop} />)}
-        </div>
-      ) : (
-        <div className="empty-state light-empty" role="status">
-          <Search aria-hidden="true" />
-          <h2>לא נמצאו סדנאות מתאימות</h2>
-          <p>נסו לשנות את החיפוש או לבחור רמה אחרת.</p>
-        </div>
-      )}
-
-      <section id="code" className="inline-code">
-        <div>
-          <h2>יש לך קוד לסדנה פרטית?</h2>
-          <p>הזינו את הקוד שקיבלתם כדי לפתוח את פרטי הסדנה והרישום.</p>
-        </div>
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          const code = new FormData(event.currentTarget).get('code');
-          if (code) location.href = `/w/${String(code).trim().toUpperCase()}`;
-        }}>
-          <label className="sr-only" htmlFor="private-workshop-code">קוד סדנה</label>
-          <input
-            id="private-workshop-code"
-            name="code"
-            placeholder="קוד סדנה"
-            autoCapitalize="characters"
-            required
-          />
-          <button type="submit" className="button primary code-open-button">
-            פתיחה <ArrowLeft size={18} aria-hidden="true" />
-          </button>
-        </form>
-      </section>
-    </div>
-  );
-}
+export function WorkshopsPage(){const {language,t,localize}=useLanguage();const query=useQuery({queryKey:['workshops'],queryFn:()=>api<{workshops:Workshop[]}>('/public/workshops')});const [search,setSearch]=useState('');const [level,setLevel]=useState('');const workshops=query.data?.workshops||[];const levels=useMemo(()=>{const configured=workshops.map(w=>localize(w,'level')?.trim()).filter((v):v is string=>Boolean(v));const base=language==='he'?[...WORKSHOP_LEVELS]:['No previous experience','Beginner','Beginner–Intermediate','Intermediate','Intermediate–Advanced','Advanced','Open to all levels'];return [...base,...new Set(configured.filter(v=>!base.includes(v)))]},[workshops,language,localize]);const items=useMemo(()=>workshops.filter(w=>{const hay=`${localize(w,'title')} ${localize(w,'location_name')} ${localize(w,'short_description')}`.toLowerCase();const wlevel=localize(w,'level')?.trim()||t('פתוח לכל הרמות','Open to all levels');return(!search||hay.includes(search.toLowerCase()))&&(!level||wlevel===level)}),[workshops,search,level,language]);const Arrow=language==='he'?ArrowLeft:ArrowRight;return <div className="page-wrap section-pad"><div className="page-hero"><span className="eyebrow">WORKSHOPS</span><h1>{t('בחרו את הסדנה שלכם','Choose your workshop')}</h1><p>{t('קבוצות מדויקות, יחס אישי וחוויה שממשיכה גם אחרי שהמוזיקה נעצרת.','Focused groups, personal attention and an experience that continues after the music stops.')}</p></div><div className="filter-bar" role="search" aria-label={t('סינון סדנאות','Workshop filters')}><label className="search-field"><span className="sr-only">{t('חיפוש סדנה','Search workshops')}</span><Search aria-hidden="true"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t('חיפוש לפי שם או מיקום','Search by name or location')} type="search"/></label><label className="level-field"><span className="sr-only">{t('סינון לפי רמה','Filter by level')}</span><select className="level-filter" value={level} onChange={e=>setLevel(e.target.value)}><option value="">{t('כל הרמות','All levels')}</option>{levels.map(x=><option key={x} value={x}>{x}</option>)}</select></label></div>{query.isLoading?<Loading/>:query.error?<ErrorBox error={query.error}/>:items.length?<div className="workshop-grid light-grid">{items.map(w=><WorkshopCard key={w.id} workshop={w}/>)}</div>:<div className="empty-state light-empty" role="status"><Search/><h2>{t('לא נמצאו סדנאות מתאימות','No matching workshops')}</h2><p>{t('נסו לשנות את החיפוש או לבחור רמה אחרת.','Try changing the search or selecting another level.')}</p></div>}<section id="code" className="inline-code"><div><h2>{t('יש לך קוד לסדנה פרטית?','Do you have a private workshop code?')}</h2><p>{t('הזינו את הקוד שקיבלתם כדי לפתוח את פרטי הסדנה והרישום.','Enter the code you received to open the workshop details and registration.')}</p></div><form onSubmit={e=>{e.preventDefault();const code=new FormData(e.currentTarget).get('code');if(code)location.href=`/w/${String(code).trim().toUpperCase()}`;}}><label className="sr-only" htmlFor="private-workshop-code">{t('קוד סדנה','Workshop code')}</label><input id="private-workshop-code" name="code" placeholder={t('קוד סדנה','Workshop code')} autoCapitalize="characters" required/><button type="submit" className="button primary code-open-button">{t('פתיחה','Open')} <Arrow size={18}/></button></form></section></div>}

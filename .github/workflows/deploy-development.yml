@@ -1,0 +1,42 @@
+name: Deploy Development
+
+on:
+  push:
+    branches:
+      - develop
+
+  workflow_dispatch:
+
+jobs:
+  deploy-development:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate
+        run: npm run validate
+
+      - name: Migrate Development Database
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL_DEVELOPMENT }}
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy Development
+        run: npx wrangler deploy --env=""
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

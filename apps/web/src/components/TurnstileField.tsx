@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { SiteData } from '../lib/types';
+import { useLanguage } from '../lib/language';
 
 declare global {
   interface Window {
@@ -29,6 +30,7 @@ function loadScript() {
 }
 
 export function TurnstileField({ action, onToken }: { action: string; onToken: (token: string) => void }) {
+  const { language, t } = useLanguage();
   const site = useQuery({ queryKey: ['site'], queryFn: () => api<SiteData>('/public/site') });
   const ref = useRef<HTMLDivElement>(null);
   const key = site.data?.turnstileSiteKey;
@@ -41,15 +43,15 @@ export function TurnstileField({ action, onToken }: { action: string; onToken: (
       widgetId = window.turnstile.render(ref.current, {
         sitekey: key,
         action,
-        language: 'he',
+        language,
         callback: (token: string) => onToken(token),
         'expired-callback': () => onToken(''),
         'error-callback': () => onToken(''),
       });
     }).catch(() => onToken(''));
     return () => { active = false; if (widgetId && window.turnstile) window.turnstile.remove(widgetId); };
-  }, [action, key, onToken]);
+  }, [action, key, language, onToken]);
 
   if (!key) return null;
-  return <div className="turnstile-wrap" ref={ref} aria-label="אימות אבטחה" />;
+  return <div className="turnstile-wrap" ref={ref} aria-label={t('אימות אבטחה','Security verification')} />;
 }

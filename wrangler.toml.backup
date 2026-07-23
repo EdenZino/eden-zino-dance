@@ -1,0 +1,50 @@
+name = "eden-zino-dance-il"
+main = "apps/api/src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "apps/web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "eden-dance-media"
+preview_bucket_name = "eden-dance-media-preview"
+
+[vars]
+PUBLIC_APP_URL = "https://eden-zino-dance-il.edenzino21.workers.dev"
+PAYMENT_PROVIDER = "mock"
+# Sandbox default. Replace with the live API base supplied by PayMe before production.
+PAYME_API_BASE = "https://sandbox.payme.io/api"
+PAYME_LANGUAGE = "he"
+# Leave empty to let the PayMe payment page show the methods enabled for the merchant.
+PAYME_PAYMENT_METHOD = ""
+PAYME_REFUND_PATH = "refund-sale"
+ADMIN_EMAIL_OTP_REQUIRED = "true"
+# WhatsApp confirmations are disabled until a business provider is connected.
+WHATSAPP_ENABLED = "false"
+# Public site key. Keep the matching secret in Cloudflare Secrets.
+TURNSTILE_SITE_KEY = ""
+EMAIL_FROM = "Eden Zino <info@edenzino.com>"
+TRANZILA_PAYMENT_BASE = "https://direct.tranzila.com"
+
+[[ratelimits]]
+name = "PUBLIC_RATE_LIMITER"
+namespace_id = "21001"
+
+[ratelimits.simple]
+limit = 120
+period = 60
+
+[[ratelimits]]
+name = "AUTH_RATE_LIMITER"
+namespace_id = "21002"
+
+[ratelimits.simple]
+limit = 10
+period = 60
+
+[triggers]
+crons = ["*/5 * * * *", "0 8 * * *"]

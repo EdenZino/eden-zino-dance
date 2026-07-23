@@ -2,19 +2,49 @@ import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs/promises';
 
 const db = new PGlite();
-for (const file of ['db/migrations/0001_init.sql', 'db/migrations/0002_demo_seed.sql', 'db/migrations/0003_commerce_and_operations.sql', 'db/migrations/0004_p0_security_and_operations.sql', 'db/migrations/0005_dual_public_themes.sql', 'db/migrations/0006_classic_color_palettes.sql', 'db/migrations/0007_gallery_library.sql']) {
+const migrationFiles = (await fs.readdir('db/migrations'))
+  .filter((file) => /^\d+_.*\.sql$/.test(file))
+  .sort()
+  .map((file) => `db/migrations/${file}`);
+for (const file of migrationFiles) {
   let sql = await fs.readFile(file, 'utf8');
   // PGlite includes gen_random_uuid but does not package the pgcrypto extension.
   sql = sql.replace(/create extension if not exists pgcrypto;?/ig, '');
   await db.exec(sql);
   console.log(`✓ migration ${file}`);
 }
+const bilingualColumns = (await db.query("select count(*)::int count from information_schema.columns where (table_name='workshops' and column_name in ('title_en','short_description_en','full_description_en','location_name_en','location_address_en','level_en','audience_en','recurrence_label_en')) or (table_name='registrations' and column_name='preferred_language') or (table_name='legal_documents' and column_name in ('title_en','content_en'))")).rows[0].count;
+if (bilingualColumns !== 11) throw new Error(`bilingual schema incomplete: expected 11 language columns, got ${bilingualColumns}`);
+const brandName = (await db.query("select business_name from business_settings where singleton=true")).rows[0]?.business_name;
+if (brandName !== 'Eden Zino') throw new Error(`brand migration failed: ${brandName}`);
+const bilingualHome = (await db.query("select value from site_content where key='home'")).rows[0]?.value || {};
+if (bilingualHome.heroTitleMainEn !== 'EDEN ZINO' || !bilingualHome.heroSubtitleEn) throw new Error('English home content defaults missing');
+console.log('✓ Hebrew/English schema, English content defaults and Eden Zino branding');
+
+const accessibilityColumns = (await db.query("select count(*)::int count from information_schema.columns where (table_name='workshops' and column_name in ('accessibility_entrance','accessibility_elevator','accessibility_restroom','accessibility_parking','accessibility_passages','accessibility_passages_en','accessibility_notes','accessibility_notes_en','accessibility_verified_at','accessibility_source')) or (table_name='business_settings' and column_name in ('accessibility_contact_name','accessibility_email','accessibility_phone','mailing_address','mailing_address_en','accessibility_known_limitations','accessibility_known_limitations_en'))")).rows[0].count;
+if (accessibilityColumns !== 17) throw new Error(`accessibility schema incomplete: expected 17 fields, got ${accessibilityColumns}`);
+const accessibilityDoc = (await db.query("select version,content,content_en from legal_documents where type='ACCESSIBILITY' and is_active=true order by published_at desc limit 1")).rows[0];
+if (accessibilityDoc?.version !== '2026-07-17' || !String(accessibilityDoc.content).includes('ת״י 5568') || !String(accessibilityDoc.content).includes('טרם נמסר אישור על בדיקת נגישות מקצועית מלאה')) throw new Error('accessibility statement migration failed');
+if (String(accessibilityDoc.content).includes('## פטור')) throw new Error('unverified accessibility exemption must not be published');
+console.log('✓ accessibility statement and editable accessibility contact schema');
+
 const admin = (await db.query("insert into admins(email,password_hash,display_name,role) values('owner@test.local','x','Owner','OWNER') returning id")).rows[0];
 await db.query(`insert into workshops(public_code,slug,title,starts_at,ends_at,capacity,max_participants_per_order,max_registrations_per_phone,price_agorot,deposit_agorot,status,terms_version,privacy_version,cancellation_policy_version,created_by)
   values('EZTEST','test-workshop','Test Workshop',now()+interval '7 day',now()+interval '7 day 2 hour',2,2,2,10000,3000,'PUBLISHED','DRAFT-1','DRAFT-1','DRAFT-1',$1)`, [admin.id]);
+let invalidAccessibilityError='';
+try { await db.query("update workshops set accessibility_entrance='MAYBE' where public_code='EZTEST'"); } catch (error) { invalidAccessibilityError=error.message; }
+if (!invalidAccessibilityError) throw new Error('accessibility verification-state constraint failed');
+await db.query("update workshops set accessibility_entrance='YES',accessibility_elevator='UNKNOWN',accessibility_restroom='NO',accessibility_parking='NOT_APPLICABLE' where public_code='EZTEST'");
+console.log('✓ verified/unknown venue accessibility states are constrained and explicit');
 const reserve = (await db.query(`select * from reserve_registration('EZTEST','Ada','Dancer','ada@example.com','050-1234567','','[{"firstName":"Ada","lastName":"Dancer"}]'::jsonb,null,false,'{}'::jsonb,'{}'::jsonb,'DRAFT-1','DRAFT-1','DRAFT-1','DEPOSIT',null,null,null)`)).rows[0];
 if (reserve.registration_status !== 'SEAT_HELD' || reserve.amount_agorot !== 3000 || reserve.total_amount_agorot !== 10000) throw new Error('reservation/deposit calculation failed');
-console.log('✓ atomic reservation and deposit calculation');
+await db.query("update registrations set preferred_language='en' where id=$1", [reserve.registration_id]);
+const preferredLanguage = (await db.query('select preferred_language from registrations where id=$1', [reserve.registration_id])).rows[0]?.preferred_language;
+if (preferredLanguage !== 'en') throw new Error('registration preferred language persistence failed');
+let invalidLanguageError = '';
+try { await db.query("update registrations set preferred_language='fr' where id=$1", [reserve.registration_id]); } catch (error) { invalidLanguageError = error.message; }
+if (!invalidLanguageError) throw new Error('preferred language constraint failed');
+console.log('✓ atomic reservation, deposit calculation and preferred language persistence');
 
 const deposit = (await db.query("insert into payments(registration_id,provider,status,amount_agorot,checkout_code,purpose) values($1,'mock','CREATED',3000,'deposit-checkout','WORKSHOP_DEPOSIT') returning id", [reserve.registration_id])).rows[0];
 await db.query("select * from confirm_checkout_payment($1,'tx-deposit',3000,'OK','mock','{}'::jsonb)", [deposit.id]);
@@ -73,14 +103,32 @@ try { await db.query("update business_settings set classic_palette='NEON' where 
 if (!invalidPaletteError) throw new Error('classic palette constraint failed');
 console.log('✓ five selectable Classic color palettes and database constraint');
 
-const galleryAsset = (await db.query("insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by) values('gallery/test/image.webp','https://example.test/image.webp','image.webp','image/webp',1234,$1) returning id", [admin.id])).rows[0];
+const galleryAsset = (await db.query("insert into uploaded_assets(object_key,public_url,file_name,content_type,size_bytes,uploaded_by) values('gallery/test/image.webp','https://legacy.example/api/media/gallery/test/image.webp','image.webp','image/webp',1234,$1) returning id", [admin.id])).rows[0];
 const galleryItem = (await db.query("insert into gallery_items(asset_id,media_type,title,alt_text,display_order,is_published,created_by) values($1,'IMAGE','Test gallery item','A dancer in the studio',10,true,$2) returning id", [galleryAsset.id, admin.id])).rows[0];
-const galleryPublic = (await db.query("select g.id,a.public_url from gallery_items g join uploaded_assets a on a.id=g.asset_id where g.is_published=true order by g.display_order")).rows;
+let mediaMigration = await fs.readFile('db/migrations/0010_relative_media_and_accessibility.sql', 'utf8');
+await db.exec(mediaMigration);
+const galleryPublic = (await db.query("select g.id,a.object_key,a.public_url from gallery_items g join uploaded_assets a on a.id=g.asset_id where g.is_published=true order by g.display_order")).rows;
 if (galleryPublic.length !== 1 || galleryPublic[0].id !== galleryItem.id) throw new Error('gallery publishing schema failed');
+if (galleryPublic[0].object_key !== 'gallery/test/image.webp' || galleryPublic[0].public_url !== '/api/media/gallery/test/image.webp') throw new Error('canonical object key / relative media URL migration failed');
+await db.query("update workshops set image_url='https://legacy.example/api/media/media/2026/07/test.webp' where public_code='EZTEST'");
+await db.exec(mediaMigration);
+const migratedWorkshopImage = (await db.query("select image_url from workshops where public_code='EZTEST'")).rows[0]?.image_url;
+if (migratedWorkshopImage !== '/api/media/media/2026/07/test.webp') throw new Error('legacy workshop media URL was not converted to relative URL');
+console.log('✓ canonical R2 object keys and host-independent relative media URLs');
 await db.query('delete from uploaded_assets where id=$1', [galleryAsset.id]);
 const galleryCascade = (await db.query('select count(*)::int count from gallery_items where id=$1', [galleryItem.id])).rows[0].count;
 if (galleryCascade !== 0) throw new Error('gallery asset cascade deletion failed');
 console.log('✓ image/video gallery publishing and deletion schema');
+
+// v1.6: editable split Hero defaults and WhatsApp shutdown migration.
+const homeContent = (await db.query("select value from site_content where key='home'")).rows[0]?.value || {};
+if (homeContent.heroTitleTop !== 'COME DANCE WITH' || homeContent.heroTitleMain !== 'EDEN ZINO' || homeContent.heroImageSource !== 'GALLERY') throw new Error('hero editor defaults migration failed');
+await db.query("insert into notification_jobs(registration_id,channel,template_key,status) values($1,'WHATSAPP','TEST_DISABLED_WHATSAPP','PENDING')", [reserve.registration_id]);
+let whatsappMigration = await fs.readFile('db/migrations/0008_email_hero_and_whatsapp.sql', 'utf8');
+await db.exec(whatsappMigration);
+const whatsappState = (await db.query("select status from notification_jobs where template_key='TEST_DISABLED_WHATSAPP'")).rows[0]?.status;
+if (whatsappState !== 'CANCELLED') throw new Error('WhatsApp shutdown migration failed');
+console.log('✓ editable split Hero defaults and WhatsApp queue shutdown');
 
 // P0: truthful notification status must not masquerade as sent.
 await db.query("insert into notification_jobs(registration_id,channel,template_key,status,last_error) values($1,'EMAIL','TEST_CONFIGURATION','CONFIGURATION_ERROR','EMAIL_PROVIDER_NOT_CONFIGURED')", [reserve.registration_id]);

@@ -23,6 +23,8 @@ PAYME_LANGUAGE = "he"
 PAYME_PAYMENT_METHOD = ""
 PAYME_REFUND_PATH = "refund-sale"
 ADMIN_EMAIL_OTP_REQUIRED = "true"
+# WhatsApp confirmations are disabled until a business provider is connected.
+WHATSAPP_ENABLED = "false"
 # Public site key. Keep the matching secret in Cloudflare Secrets.
 TURNSTILE_SITE_KEY = ""
 EMAIL_FROM = "Eden Zino Dance <noreply@example.co.il>"

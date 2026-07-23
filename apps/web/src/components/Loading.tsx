@@ -1,2 +1,11 @@
-export function Loading({ label = 'טוען...' }: { label?: string }) { return <div className="loading"><span className="spinner" />{label}</div>; }
-export function ErrorBox({ error }: { error: unknown }) { return <div className="error-box">{error instanceof Error ? error.message : 'אירעה שגיאה'}</div>; }
+import { useLanguage } from '../lib/language';
+
+export function Loading({ label }: { label?: string }) {
+  const {t}=useLanguage();
+  return <div className="loading" role="status" aria-live="polite"><span className="spinner" aria-hidden="true"/><span>{label||t('טוען...','Loading...')}</span></div>;
+}
+
+export function ErrorBox({ error }: { error: unknown }) {
+  const {t}=useLanguage();
+  return <div className="error-box" role="alert" aria-live="assertive">{error instanceof Error ? error.message : t('אירעה שגיאה','Something went wrong')}</div>;
+}

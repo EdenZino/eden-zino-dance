@@ -1,7 +1,7 @@
 {
   "name": "eden-dance-platform",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.8.1",
   "type": "module",
   "workspaces": [
     "apps/web",
@@ -12,11 +12,13 @@
     "dev:web": "npm --workspace @eden/web run dev",
     "dev:api": "npm --workspace @eden/api run dev",
     "build": "npm --workspace @eden/web run build && npm --workspace @eden/api run typecheck",
-    "deploy": "npm run build && npm --workspace @eden/api run deploy",
     "typecheck": "npm --workspace @eden/web run typecheck && npm --workspace @eden/api run typecheck",
     "migrate": "node scripts/migrate.mjs",
     "seed": "node scripts/seed.mjs",
-    "validate": "npm run build && node scripts/validate.mjs"
+    "validate": "npm run validate:static && npm run build && node scripts/validate.mjs",
+    "deploy:dev": "npm run build && npm --workspace @eden/api run deploy:dev",
+    "deploy:prod": "npm run build && npm --workspace @eden/api run deploy:prod",
+    "validate:static": "node scripts/validate-static.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",

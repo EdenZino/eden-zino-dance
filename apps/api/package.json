@@ -1,12 +1,13 @@
 {
   "name": "@eden/api",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.8.1",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --config ../../wrangler.toml",
-    "deploy": "wrangler deploy --config ../../wrangler.toml",
-    "typecheck": "tsc --noEmit --pretty false"
+    "typecheck": "tsc --noEmit --pretty false",
+    "deploy:dev": "wrangler deploy --config ../../wrangler.toml --env=\"\"",
+    "deploy:prod": "wrangler deploy --config ../../wrangler.toml --env production"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

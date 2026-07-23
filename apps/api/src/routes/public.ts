@@ -2,11 +2,12 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { buildPaymentSession } from '../services/payment';
-import { sendEmail } from '../services/notifications';
+import { brandedEmail, sendEmail } from '../services/notifications';
 import { createCustomerSession, destroyCustomerSession, getCustomerEmail, publicAccessHash, verifyOrderAccess, verifyRegistrationAccess } from '../lib/auth';
 import { randomToken, sha256 } from '../lib/crypto';
 import { verifyTurnstile } from '../lib/turnstile';
 import type { Env } from '../types';
+import { withRelativeAssetUrl } from '../lib/media';
 
 const publicRoutes = new Hono<{ Bindings: Env }>();
 
@@ -49,11 +50,15 @@ function safeText(value: unknown) {
   return String(value ?? '').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
+function requestLanguage(c: any): 'he' | 'en' {
+  return String(c.req.header('X-Eden-Language') ?? '').toLowerCase() === 'en' ? 'en' : 'he';
+}
+
 async function loadPortalData(env: Env, email: string) {
   const sql = db(env);
   const [registrations, entitlements, orders] = await Promise.all([
     sql`select r.registration_code,r.status,r.participant_count,r.total_amount_agorot,r.amount_paid_agorot,
-      greatest(0,r.total_amount_agorot-r.amount_paid_agorot)::int balance_agorot,r.balance_due_at,w.public_code,w.title,w.starts_at,w.ends_at,w.location_name,w.location_address
+      greatest(0,r.total_amount_agorot-r.amount_paid_agorot)::int balance_agorot,r.balance_due_at,w.public_code,w.title,w.title_en,w.starts_at,w.ends_at,w.location_name,w.location_name_en,w.location_address,w.location_address_en
       from registrations r join workshops w on w.id=r.workshop_id where lower(r.email)=lower(${email}) order by w.starts_at desc`,
     sql`select * from customer_entitlements where lower(email)=lower(${email}) order by valid_until desc`,
     sql`select order_code,order_type,status,amount_agorot,created_at,metadata from commerce_orders where lower(email)=lower(${email}) order by created_at desc`,
@@ -64,9 +69,9 @@ async function loadPortalData(env: Env, email: string) {
 publicRoutes.get('/site', async (c) => {
   const sql = db(c.env);
   const [settings, content, legal] = await Promise.all([
-    sql`select business_name, contact_email, contact_phone, address, instagram_url, default_currency, timezone, public_theme, classic_palette from business_settings where singleton = true`,
+    sql`select business_name, contact_email, contact_phone, address, instagram_url, default_currency, timezone, public_theme, classic_palette,accessibility_contact_name,accessibility_email,accessibility_phone,mailing_address,mailing_address_en,accessibility_known_limitations,accessibility_known_limitations_en from business_settings where singleton = true`,
     sql`select key, value from site_content`,
-    sql`select type, version, title, content from legal_documents where is_active = true order by published_at desc`,
+    sql`select type, version, title, title_en, content, content_en from legal_documents where is_active = true order by published_at desc`,
   ]);
   return c.json({
     settings: settings[0] ?? {},
@@ -77,18 +82,18 @@ publicRoutes.get('/site', async (c) => {
 });
 
 publicRoutes.get('/gallery', async (c) => {
-  const items = await db(c.env)`select g.id,g.media_type,g.title,g.caption,g.alt_text,g.display_order,g.created_at,
-    a.public_url,a.file_name,a.content_type,a.size_bytes
+  const rows = await db(c.env)`select g.id,g.media_type,g.title,g.title_en,g.caption,g.caption_en,g.alt_text,g.alt_text_en,g.display_order,g.created_at,
+    a.object_key,a.public_url,a.file_name,a.content_type,a.size_bytes
     from gallery_items g join uploaded_assets a on a.id=g.asset_id
     where g.is_published=true order by g.display_order asc,g.created_at desc`;
-  return c.json({ items });
+  return c.json({ items: rows.map((row: any) => withRelativeAssetUrl(row)) });
 });
 
 publicRoutes.get('/workshops', async (c) => {
-  const result = await db(c.env)`select w.id, w.public_code, w.slug, w.title, w.short_description, w.image_url, w.location_name,
-    w.location_address, w.starts_at, w.ends_at, w.level, w.audience, w.price_agorot, w.early_bird_price_agorot,
-    w.early_bird_ends_at, w.currency, w.capacity, w.status, w.recurrence_label, a.available,
-    coalesce(json_agg(json_build_object('id',i.id,'name',i.name,'imageUrl',i.image_url)) filter (where i.id is not null), '[]') as instructors
+  const result = await db(c.env)`select w.id, w.public_code, w.slug, w.title, w.title_en, w.short_description, w.short_description_en, w.image_url, w.location_name, w.location_name_en,
+    w.location_address, w.location_address_en, w.starts_at, w.ends_at, w.level, w.level_en, w.audience, w.audience_en, w.price_agorot, w.early_bird_price_agorot,
+    w.early_bird_ends_at, w.currency, w.capacity, w.status, w.recurrence_label, w.recurrence_label_en, a.available,
+    coalesce(json_agg(json_build_object('id',i.id,'name',i.name,'name_en',i.name_en,'imageUrl',i.image_url)) filter (where i.id is not null), '[]') as instructors
     from workshops w join workshop_availability a on a.id = w.id
     left join workshop_instructors wi on wi.workshop_id = w.id left join instructors i on i.id = wi.instructor_id
     where w.status in ('PUBLISHED','FULL') and w.ends_at > now() and not w.is_private
@@ -100,7 +105,7 @@ publicRoutes.get('/workshops/:code', async (c) => {
   const code = c.req.param('code');
   const sql = db(c.env);
   const workshops = await sql`select w.*, a.available,
-    coalesce(json_agg(distinct jsonb_build_object('id',i.id,'name',i.name,'bio',i.bio,'imageUrl',i.image_url,'instagramUrl',i.instagram_url)) filter (where i.id is not null), '[]') as instructors
+    coalesce(json_agg(distinct jsonb_build_object('id',i.id,'name',i.name,'name_en',i.name_en,'bio',i.bio,'bio_en',i.bio_en,'imageUrl',i.image_url,'instagramUrl',i.instagram_url)) filter (where i.id is not null), '[]') as instructors
     from workshops w join workshop_availability a on a.id = w.id
     left join workshop_instructors wi on wi.workshop_id = w.id left join instructors i on i.id = wi.instructor_id
     where upper(w.public_code) = upper(${code}) or w.slug = ${code}
@@ -108,8 +113,8 @@ publicRoutes.get('/workshops/:code', async (c) => {
   if (!workshops.length) return c.json({ error: 'WORKSHOP_NOT_FOUND' }, 404);
   const workshop = workshops[0] as { id: string };
   const [fields, legal] = await Promise.all([
-    sql`select id, field_key, field_type, label, help_text, required, options, display_order from workshop_fields where workshop_id = ${workshop.id}::uuid order by display_order`,
-    sql`select type, version, title, content from legal_documents where is_active = true and type in ('TERMS','PRIVACY','CANCELLATION') order by type`,
+    sql`select id, field_key, field_type, label, label_en, help_text, help_text_en, required, options, options_en, display_order from workshop_fields where workshop_id = ${workshop.id}::uuid order by display_order`,
+    sql`select type, version, title, title_en, content, content_en from legal_documents where is_active = true and type in ('TERMS','PRIVACY','CANCELLATION') order by type`,
   ]);
   return c.json({ workshop, fields, legal });
 });
@@ -129,7 +134,7 @@ publicRoutes.post('/registrations/reserve', async (c) => {
     const registration = result[0] as any;
     const accessToken = randomToken(32);
     const accessHash = await publicAccessHash(c.env.SESSION_SECRET, accessToken);
-    await sql`update registrations set public_access_token_hash=${accessHash},public_access_expires_at=now()+interval '48 hours'
+    await sql`update registrations set public_access_token_hash=${accessHash},public_access_expires_at=now()+interval '48 hours',preferred_language=${requestLanguage(c)}
       where id=${registration.registration_id}::uuid`;
     return c.json({ registration, accessToken }, 201);
   } catch (error) {
@@ -143,7 +148,7 @@ publicRoutes.post('/payments/start', async (c) => {
   const input = z.object({ registrationCode: z.string().min(4), paymentKind: z.enum(['INITIAL', 'BALANCE']).optional(), accessToken: z.string().min(20).optional() }).parse(await c.req.json());
   const sql = db(c.env);
   const rows = await sql`select r.id,r.registration_code,r.status,r.amount_agorot,r.total_amount_agorot,r.amount_paid_agorot,
-    r.first_name,r.last_name,r.email,r.phone,r.hold_expires_at,w.title
+    r.first_name,r.last_name,r.email,r.phone,r.hold_expires_at,r.preferred_language,w.title,w.title_en
     from registrations r join workshops w on w.id=r.workshop_id where r.registration_code=${input.registrationCode} limit 1`;
   const registration = rows[0] as any;
   if (!registration) return c.json({ error: 'REGISTRATION_NOT_FOUND' }, 404);
@@ -164,7 +169,7 @@ publicRoutes.post('/payments/start', async (c) => {
     const session = await buildPaymentSession(c.env, {
       paymentId: String((payment[0] as any).id), referenceCode: registration.registration_code, referenceType: 'registration', amountAgorot: amount,
       fullName: `${registration.first_name} ${registration.last_name}`, email: registration.email, phone: registration.phone,
-      productName: `${registration.title} — ${isBalance ? 'תשלום יתרה' : 'הרשמה'}`,
+      productName: `${registration.preferred_language === 'en' && registration.title_en ? registration.title_en : registration.title} — ${registration.preferred_language === 'en' ? (isBalance ? 'Balance payment' : 'Registration') : (isBalance ? 'תשלום יתרה' : 'הרשמה')}`,
       accessToken: input.accessToken,
     });
     await sql`update payments set status='PENDING',provider_session_id=${session.providerSessionId ?? null},updated_at=now() where id=${String((payment[0] as any).id)}::uuid`;
@@ -293,7 +298,7 @@ publicRoutes.get('/registrations/:code/status', async (c) => {
   if (!(await verifyRegistrationAccess(c, code, c.req.query('access')))) return c.json({ error: 'UNAUTHORIZED' }, 401);
   const result = await db(c.env)`select r.registration_code,r.status,r.first_name,r.last_name,r.email,r.participant_count,
     r.amount_agorot,r.total_amount_agorot,r.amount_paid_agorot,greatest(0,r.total_amount_agorot-r.amount_paid_agorot)::int as balance_agorot,
-    r.balance_due_at,r.hold_expires_at,w.title,w.starts_at,w.ends_at,w.location_name,w.location_address
+    r.balance_due_at,r.hold_expires_at,w.title,w.title_en,w.starts_at,w.ends_at,w.location_name,w.location_name_en,w.location_address,w.location_address_en
     from registrations r join workshops w on w.id=r.workshop_id where r.registration_code=${code} limit 1`;
   if (!result.length) return c.json({ error: 'REGISTRATION_NOT_FOUND' }, 404);
   return c.json({ registration: result[0] });
@@ -305,15 +310,15 @@ publicRoutes.post('/waitlist', async (c) => {
   const workshops = await sql`select id,allow_waitlist from workshops where upper(public_code)=upper(${input.workshopCode}) limit 1`;
   const workshop = workshops[0] as any;
   if (!workshop || !workshop.allow_waitlist) return c.json({ error: 'WAITLIST_NOT_AVAILABLE' }, 409);
-  await sql`insert into waitlist_entries(workshop_id,first_name,last_name,email,phone,participant_count)
-    values(${workshop.id}::uuid,${input.firstName},${input.lastName},lower(${input.email}),${input.phone},${input.participantCount})
-    on conflict(workshop_id,email) do update set first_name=excluded.first_name,last_name=excluded.last_name,phone=excluded.phone,participant_count=excluded.participant_count,status='WAITING'`;
+  await sql`insert into waitlist_entries(workshop_id,first_name,last_name,email,phone,participant_count,preferred_language)
+    values(${workshop.id}::uuid,${input.firstName},${input.lastName},lower(${input.email}),${input.phone},${input.participantCount},${requestLanguage(c)})
+    on conflict(workshop_id,email) do update set first_name=excluded.first_name,last_name=excluded.last_name,phone=excluded.phone,participant_count=excluded.participant_count,preferred_language=excluded.preferred_language,status='WAITING'`;
   return c.json({ ok: true }, 201);
 });
 
 publicRoutes.get('/waitlist/:token', async (c) => {
   const rows = await db(c.env)`select e.first_name,e.last_name,e.email,e.phone,e.participant_count,e.status,e.invite_expires_at,
-    w.public_code,w.title,w.starts_at,w.location_name,w.location_address,a.available
+    w.public_code,w.title,w.title_en,w.starts_at,w.location_name,w.location_name_en,w.location_address,w.location_address_en,a.available
     from waitlist_entries e join workshops w on w.id=e.workshop_id join workshop_availability a on a.id=w.id
     where e.invite_token=${c.req.param('token')} and e.status='INVITED' and e.invite_expires_at>now() limit 1`;
   if (!rows.length) return c.json({ error: 'INVITE_NOT_FOUND_OR_EXPIRED' }, 404);
@@ -333,7 +338,7 @@ publicRoutes.post('/waitlist/:token/claim', async (c) => {
     const result=await sql`select * from reserve_registration(${entry.public_code},${entry.first_name},${entry.last_name},${entry.email},${entry.phone},'Waitlist invitation',${JSON.stringify(participants)}::jsonb,null,false,'{}'::jsonb,'{}'::jsonb,${entry.terms_version},${entry.privacy_version},${entry.cancellation_policy_version},'FULL',null,null,30)`;
     const registration=result[0] as any;
     const accessToken=randomToken(32);const accessHash=await publicAccessHash(c.env.SESSION_SECRET,accessToken);
-    await sql`update registrations set public_access_token_hash=${accessHash},public_access_expires_at=now()+interval '48 hours' where id=${registration.registration_id}::uuid`;
+    await sql`update registrations set public_access_token_hash=${accessHash},public_access_expires_at=now()+interval '48 hours',preferred_language=${entry.preferred_language ?? 'he'} where id=${registration.registration_id}::uuid`;
     await sql`update waitlist_entries set registration_id=${registration.registration_id}::uuid,status='REGISTERED' where id=${entry.id}::uuid`;
     return c.json({registration,accessToken},201);
   }catch(error){return c.json({error:error instanceof Error?error.message:'CLAIM_FAILED'},409);}
@@ -354,10 +359,22 @@ publicRoutes.post('/portal/request-link', async (c) => {
     await sql`insert into customer_magic_tokens(email,token_hash,expires_at,requested_ip)
       values(${email},${tokenHash},now()+interval '15 minutes',${c.req.header('CF-Connecting-IP') ?? null})`;
     const url = `${c.env.PUBLIC_APP_URL.replace(/\/$/, '')}/my-registration?token=${encodeURIComponent(token)}`;
+    const language = requestLanguage(c);
     const delivery = await sendEmail(c.env, {
       to: email,
-      subject: 'קישור מאובטח לאזור האישי — Eden Zino Dance',
-      html: `<div dir="rtl"><h2>כניסה לאזור האישי</h2><p><a href="${url}">לחצי כאן לכניסה מאובטחת</a></p><p>הקישור תקף ל-15 דקות וניתן לשימוש פעם אחת.</p></div>`,
+      ...brandedEmail({
+        language,
+        eyebrow: 'SECURE ACCESS',
+        title: language === 'en' ? 'Your secure sign-in link' : 'הקישור המאובטח שלך',
+        intro: language === 'en' ? 'Use the button below to open your Eden Zino personal area.' : 'לחצי על הכפתור כדי להיכנס לאזור האישי שלך ב-Eden Zino.',
+        body: language === 'en'
+          ? '<p style="color:#6F5A61;line-height:1.75">The link is valid for 15 minutes and can be used once.</p>'
+          : '<p style="color:#6F5A61;line-height:1.75">הקישור תקף ל-15 דקות וניתן לשימוש פעם אחת.</p>',
+        buttonLabel: language === 'en' ? 'Open my personal area' : 'כניסה לאזור האישי',
+        buttonUrl: url,
+        appUrl: c.env.PUBLIC_APP_URL,
+      }),
+      subject: language === 'en' ? 'Secure sign-in link — Eden Zino' : 'קישור מאובטח לאזור האישי — Eden Zino',
     });
     if (delivery.outcome === 'CONFIGURATION_ERROR') return c.json({ error: 'EMAIL_PROVIDER_NOT_CONFIGURED' }, 503);
   }
@@ -390,8 +407,8 @@ publicRoutes.post('/portal/lookup', (c) => c.json({ error: 'LEGACY_PORTAL_DISABL
 publicRoutes.get('/products', async (c) => {
   const sql = db(c.env);
   const [plans, passes] = await Promise.all([
-    sql`select id,name,description,price_agorot,billing_interval,included_credits,discount_percent from membership_plans where is_active=true order by price_agorot`,
-    sql`select id,name,description,credits,price_agorot,validity_days from pass_products where is_active=true order by price_agorot`,
+    sql`select id,name,name_en,description,description_en,price_agorot,billing_interval,included_credits,discount_percent from membership_plans where is_active=true order by price_agorot`,
+    sql`select id,name,name_en,description,description_en,credits,price_agorot,validity_days from pass_products where is_active=true order by price_agorot`,
   ]);
   return c.json({ membershipPlans: plans, passProducts: passes });
 });
@@ -400,24 +417,24 @@ publicRoutes.post('/orders', async (c) => {
   const input = z.object({ productType: z.enum(['PASS', 'MEMBERSHIP']), productId: z.string().uuid(), fullName: z.string().min(2), email: z.string().email(), phone: z.string().min(7) }).parse(await c.req.json());
   const sql = db(c.env);
   const products = input.productType === 'PASS'
-    ? await sql`select id,name,price_agorot from pass_products where id=${input.productId}::uuid and is_active=true`
-    : await sql`select id,name,price_agorot from membership_plans where id=${input.productId}::uuid and is_active=true`;
+    ? await sql`select id,name,name_en,price_agorot from pass_products where id=${input.productId}::uuid and is_active=true`
+    : await sql`select id,name,name_en,price_agorot from membership_plans where id=${input.productId}::uuid and is_active=true`;
   const product = products[0] as any;
   if (!product) return c.json({ error: 'PRODUCT_NOT_FOUND' }, 404);
   const orderCode = `ORD-${crypto.randomUUID().replaceAll('-', '').slice(0, 9).toUpperCase()}`;
   const accessToken = randomToken(32);
   const accessHash = await publicAccessHash(c.env.SESSION_SECRET, accessToken);
-  const orderRows = await sql`insert into commerce_orders(order_code,order_type,pass_product_id,membership_plan_id,full_name,email,phone,amount_agorot)
-    values(${orderCode},${input.productType === 'PASS' ? 'PASS_PURCHASE' : 'MEMBERSHIP_PURCHASE'},${input.productType === 'PASS' ? input.productId : null}::uuid,${input.productType === 'MEMBERSHIP' ? input.productId : null}::uuid,${input.fullName},lower(${input.email}),${input.phone},${product.price_agorot}) returning id`;
+  const orderRows = await sql`insert into commerce_orders(order_code,order_type,pass_product_id,membership_plan_id,full_name,email,phone,amount_agorot,preferred_language)
+    values(${orderCode},${input.productType === 'PASS' ? 'PASS_PURCHASE' : 'MEMBERSHIP_PURCHASE'},${input.productType === 'PASS' ? input.productId : null}::uuid,${input.productType === 'MEMBERSHIP' ? input.productId : null}::uuid,${input.fullName},lower(${input.email}),${input.phone},${product.price_agorot},${requestLanguage(c)}) returning id`;
   const orderId = String((orderRows[0] as any).id);
   await sql`update commerce_orders set public_access_token_hash=${accessHash},public_access_expires_at=now()+interval '48 hours' where id=${orderId}::uuid`;
   const paymentRows = await sql`insert into payments(order_id,provider,provider_environment,status,amount_agorot,checkout_code,purpose)
     values(${orderId}::uuid,${c.env.PAYMENT_PROVIDER},${activePaymentEnvironment(c.env)},'CREATED',${product.price_agorot},${crypto.randomUUID()},${input.productType === 'PASS' ? 'PASS_PURCHASE' : 'MEMBERSHIP_PURCHASE'}) returning id`;
   try {
     const paymentId = String((paymentRows[0] as any).id);
-    const session = await buildPaymentSession(c.env, { paymentId, referenceCode: orderCode, referenceType: 'order', amountAgorot: Number(product.price_agorot), fullName: input.fullName, email: input.email, phone: input.phone, productName: product.name, accessToken });
+    const session = await buildPaymentSession(c.env, { paymentId, referenceCode: orderCode, referenceType: 'order', amountAgorot: Number(product.price_agorot), fullName: input.fullName, email: input.email, phone: input.phone, productName: requestLanguage(c) === 'en' && product.name_en ? product.name_en : product.name, accessToken });
     await sql`update payments set status='PENDING',provider_session_id=${session.providerSessionId ?? null},updated_at=now() where id=${paymentId}::uuid`;
-    return c.json({ order: { orderCode, productName: product.name }, session, accessToken }, 201);
+    return c.json({ order: { orderCode, productName: requestLanguage(c) === 'en' && product.name_en ? product.name_en : product.name }, session, accessToken }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'PAYMENT_SESSION_FAILED';
     await sql`update payments set status='FAILED',raw_response=${JSON.stringify({ error: message })}::jsonb,updated_at=now() where id=${String((paymentRows[0] as any).id)}::uuid`;
@@ -432,21 +449,21 @@ publicRoutes.post('/memberships/:code/renew', async (c) => {
   const customerEmail = await getCustomerEmail(c);
   if (!customerEmail) return c.json({ error: 'UNAUTHORIZED' }, 401);
   const sql = db(c.env);
-  const rows = await sql`select m.id,m.membership_code,m.full_name,m.email,m.phone,mp.name,mp.price_agorot
+  const rows = await sql`select m.id,m.membership_code,m.full_name,m.email,m.phone,mp.name,mp.name_en,mp.price_agorot
     from memberships m join membership_plans mp on mp.id=m.plan_id where upper(m.membership_code)=upper(${code}) and lower(m.email)=lower(${customerEmail}) limit 1`;
   const membership = rows[0] as any;
   if (!membership) return c.json({ error: 'MEMBERSHIP_NOT_FOUND' }, 404);
   const orderCode = `ORD-${crypto.randomUUID().replaceAll('-', '').slice(0, 9).toUpperCase()}`;
   const accessToken = randomToken(32);
   const accessHash = await publicAccessHash(c.env.SESSION_SECRET, accessToken);
-  const order = await sql`insert into commerce_orders(order_code,order_type,membership_id,full_name,email,phone,amount_agorot)
-    values(${orderCode},'MEMBERSHIP_RENEWAL',${membership.id}::uuid,${membership.full_name},${membership.email},${membership.phone},${membership.price_agorot}) returning id`;
+  const order = await sql`insert into commerce_orders(order_code,order_type,membership_id,full_name,email,phone,amount_agorot,preferred_language)
+    values(${orderCode},'MEMBERSHIP_RENEWAL',${membership.id}::uuid,${membership.full_name},${membership.email},${membership.phone},${membership.price_agorot},${requestLanguage(c)}) returning id`;
   await sql`update commerce_orders set public_access_token_hash=${accessHash},public_access_expires_at=now()+interval '48 hours' where id=${String((order[0] as any).id)}::uuid`;
   const payment = await sql`insert into payments(order_id,provider,provider_environment,status,amount_agorot,checkout_code,purpose)
     values(${(order[0] as any).id}::uuid,${c.env.PAYMENT_PROVIDER},${activePaymentEnvironment(c.env)},'CREATED',${membership.price_agorot},${crypto.randomUUID()},'MEMBERSHIP_RENEWAL') returning id`;
   try {
     const paymentId = String((payment[0] as any).id);
-    const session = await buildPaymentSession(c.env, { paymentId, referenceCode: orderCode, referenceType: 'order', amountAgorot: Number(membership.price_agorot), fullName: membership.full_name, email: membership.email, phone: membership.phone, productName: `חידוש מנוי — ${membership.name}`, accessToken });
+    const session = await buildPaymentSession(c.env, { paymentId, referenceCode: orderCode, referenceType: 'order', amountAgorot: Number(membership.price_agorot), fullName: membership.full_name, email: membership.email, phone: membership.phone, productName: requestLanguage(c) === 'en' ? `Membership renewal — ${membership.name_en || membership.name}` : `חידוש מנוי — ${membership.name}`, accessToken });
     await sql`update payments set status='PENDING',provider_session_id=${session.providerSessionId ?? null},updated_at=now() where id=${paymentId}::uuid`;
     return c.json({ order: { orderCode }, session, accessToken }, 201);
   } catch (error) {
@@ -488,7 +505,7 @@ publicRoutes.post('/contact', async (c) => {
   const input = z.object({ name: z.string().min(1).max(120), email: z.string().email(), phone: z.string().max(30).optional(), message: z.string().min(5).max(3000) }).parse(await c.req.json());
   const settings = await db(c.env)`select contact_email from business_settings where singleton=true`;
   const destination = String((settings[0] as any)?.contact_email ?? '');
-  if (destination) await sendEmail(c.env, { to: destination, subject: `פנייה חדשה מהאתר — ${input.name}`, html: `<p><b>שם:</b> ${safeText(input.name)}</p><p><b>דוא״ל:</b> ${safeText(input.email)}</p><p><b>טלפון:</b> ${safeText(input.phone)}</p><p>${safeText(input.message)}</p>` });
+  if (destination) await sendEmail(c.env, { to: destination, subject: `פנייה חדשה מהאתר — ${input.name}`, ...brandedEmail({ language:'he', eyebrow:'WEBSITE CONTACT', title:'פנייה חדשה מהאתר', intro:`התקבלה פנייה חדשה מאת ${input.name}.`, body:`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid #E7D3D3;border-bottom:1px solid #E7D3D3"><tr><td style="padding:9px;color:#8A737A">דוא״ל</td><td style="padding:9px;font-weight:700">${safeText(input.email)}</td></tr><tr><td style="padding:9px;color:#8A737A">טלפון</td><td style="padding:9px;font-weight:700">${safeText(input.phone)}</td></tr></table><div style="margin-top:20px;padding:18px;background:#F7EEE9;border-radius:16px;line-height:1.8">${safeText(input.message).replaceAll('\n','<br>')}</div>`, appUrl:c.env.PUBLIC_APP_URL }) });
   return c.json({ ok: true });
 });
 

@@ -1,4 +1,4 @@
-# Feature Matrix — Release 1.5.0
+# Feature Matrix — Release 1.6.0
 
 | Capability | Database/API | Public UI | Admin UI | Validation | Status |
 |---|---:|---:|---:|---:|---|
