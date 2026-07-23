@@ -1,12 +1,12 @@
 export interface Workshop {
-  id: string; public_code: string; slug: string; title: string; short_description: string; full_description: string;
-  image_url: string; gallery: string[]; location_name: string; location_address: string; map_url: string;
+  id: string; public_code: string; slug: string; title: string; title_en?: string; short_description: string; short_description_en?: string; full_description: string; full_description_en?: string;
+  image_url: string; gallery: string[]; location_name: string; location_name_en?: string; location_address: string; location_address_en?: string; map_url: string;
   starts_at: string; ends_at: string; registration_opens_at?: string | null; registration_closes_at?: string | null;
   capacity: number; available: number; occupied?: number; price_agorot: number; early_bird_price_agorot?: number | null;
-  early_bird_ends_at?: string | null; deposit_agorot?: number | null; currency: string; level: string; audience: string;
+  early_bird_ends_at?: string | null; deposit_agorot?: number | null; currency: string; level: string; level_en?: string; audience: string; audience_en?: string; recurrence_label_en?: string;
   minimum_age?: number | null; max_participants_per_order: number; allow_waitlist: boolean; status: string;
   terms_version: string; privacy_version: string; cancellation_policy_version: string;
-  instructors?: Array<{ id: string; name: string; bio?: string; imageUrl?: string; instagramUrl?: string }>;
+  instructors?: Array<{ id: string; name: string; name_en?: string; bio?: string; bio_en?: string; imageUrl?: string; instagramUrl?: string }>;
 }
 
 export interface SiteData {
@@ -21,8 +21,11 @@ export interface GalleryItem {
   id: string;
   media_type: 'IMAGE' | 'VIDEO';
   title: string;
+  title_en?: string;
   caption: string;
+  caption_en?: string;
   alt_text: string;
+  alt_text_en?: string;
   display_order: number;
   is_published?: boolean;
   public_url: string;

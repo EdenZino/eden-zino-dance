@@ -13,7 +13,10 @@ import { AdminPage } from './pages/AdminPage';
 import { WaitlistInvitePage } from './pages/WaitlistInvitePage';
 import { ProductsPage, ProductResultPage } from './pages/ProductsPage';
 import { GalleryPage } from './pages/GalleryPage';
+import { LanguageProvider, useLanguage } from './lib/language';
 import './styles.css';
+
+function NotFoundPage(){const {t}=useLanguage();return <div className="center-page"><h1>{t('העמוד לא נמצא','Page not found')}</h1><a href="/">{t('חזרה לבית','Back home')}</a></div>}
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
 const router = createBrowserRouter([
@@ -26,7 +29,7 @@ const router = createBrowserRouter([
     { path: '/contact', element: <ContactPage /> }, { path: '/waitlist/:token', element: <WaitlistInvitePage /> }, { path: '/legal/:type', element: <LegalPage /> },
   ]},
   { path: '/admin/*', element: <AdminPage /> },
-  { path: '*', element: <div className="center-page"><h1>העמוד לא נמצא</h1><a href="/">חזרה לבית</a></div> },
+  { path: '*', element: <NotFoundPage /> },
 ]);
 
-ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><QueryClientProvider client={client}><RouterProvider router={router}/></QueryClientProvider></React.StrictMode>);
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><LanguageProvider><QueryClientProvider client={client}><RouterProvider router={router}/></QueryClientProvider></LanguageProvider></React.StrictMode>);

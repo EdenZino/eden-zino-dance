@@ -25,7 +25,7 @@ create index if not exists idx_admin_sessions_expiry on admin_sessions(expires_a
 
 create table if not exists business_settings (
   singleton boolean primary key default true check (singleton),
-  business_name text not null default 'Eden Zino Dance',
+  business_name text not null default 'Eden Zino',
   legal_business_name text not null default '',
   business_number text not null default '',
   contact_email text not null default '',

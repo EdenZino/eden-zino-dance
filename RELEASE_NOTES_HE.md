@@ -132,7 +132,7 @@
 
 ## ביקורת מוכנות
 
-- נוסף `docs/DEVELOPMENT_GAP_AUDIT_HE.md` עם פערי P0/P1/P2 לפני הפעלה מסחרית.
+- נוסף `docs/archive/DEVELOPMENT_GAP_AUDIT_HE.md` עם פערי P0/P1/P2 לפני הפעלה מסחרית.
 - `docs/FEATURE_MATRIX.md` עודכן מסטטוס שיווקי לביקורת המבוססת על הקוד בפועל.
 - Build, TypeScript, מיגרציות ובדיקות המסד עברו לאחר השינויים.
 - בדיקת `npm audit --omit=dev` מוקדמת בסקירה החזירה 0 חולשות ידועות; ניסיון האימות הסופי נחסם ב־502 של שרת ה־Registry ולא החזיר דוח חדש.
@@ -165,7 +165,7 @@
 ## מסמכים חדשים
 
 - `docs/PAYME_SETUP_HE.md`
-- `docs/MOBILE_ACCESSIBILITY_HE.md`
+- `docs/archive/MOBILE_ACCESSIBILITY_HE.md`
 
 ## בדיקות שבוצעו
 
@@ -183,3 +183,19 @@
 - כתובת API לייצור צריכה להגיע מ-PayMe; החבילה משתמשת ב-Sandbox כברירת מחדל.
 - החזר כספי אוטומטי מול PayMe לא מופעל בלי הרשאות ותיעוד Refund API המתאימים לחשבון.
 - הצהרת נגישות סופית דורשת בדיקה ידנית עם התוכן והתמונות האמיתיים.
+
+---
+
+# v1.7.0 — עברית/אנגלית, דוא״ל דו־כיווני ו-SEO Eden Zino
+
+- נוסף בורר עברית / English באתר הציבורי, כולל `lang`/`dir` אוטומטיים ושמירת בחירת המשתמש.
+- כל ממשק המשתמש הציבורי תורגם בקוד; תוכן עסקי דינמי תומך בשדות English עם fallback לעברית.
+- שפת הלקוח נשמרת בהרשמות, Waitlist והזמנות ומשמשת את תור ההודעות.
+- כל הודעות הדוא״ל של הלקוחות שודרגו לתבנית HTML ממותגת עם RTL/LTR בהתאם לשפה.
+- OTP ואיפוס סיסמה של Admin הועברו גם הם לתבנית המעוצבת.
+- המותג הציבורי שונה ל-`Eden Zino`.
+- נוספו favicon SVG/PNG, Apple Touch Icon, `WebSite` structured data, Open Graph, robots.txt ו-sitemap בסיסי.
+- הוסר Workflow כפול ומסוכן לפריסת `main` והוסרו קבצי Wrangler היסטוריים.
+- מסמכי יישום היסטוריים הועברו ל-`docs/archive/`.
+
+פירוט: `docs/BILINGUAL_EMAIL_SEO_UPGRADE_HE.md` ו-`docs/PROJECT_CLEANUP_HE.md`.

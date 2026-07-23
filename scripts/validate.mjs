@@ -13,12 +13,26 @@ for (const file of migrationFiles) {
   await db.exec(sql);
   console.log(`✓ migration ${file}`);
 }
+const bilingualColumns = (await db.query("select count(*)::int count from information_schema.columns where (table_name='workshops' and column_name in ('title_en','short_description_en','full_description_en','location_name_en','location_address_en','level_en','audience_en','recurrence_label_en')) or (table_name='registrations' and column_name='preferred_language') or (table_name='legal_documents' and column_name in ('title_en','content_en'))")).rows[0].count;
+if (bilingualColumns !== 11) throw new Error(`bilingual schema incomplete: expected 11 language columns, got ${bilingualColumns}`);
+const brandName = (await db.query("select business_name from business_settings where singleton=true")).rows[0]?.business_name;
+if (brandName !== 'Eden Zino') throw new Error(`brand migration failed: ${brandName}`);
+const bilingualHome = (await db.query("select value from site_content where key='home'")).rows[0]?.value || {};
+if (bilingualHome.heroTitleMainEn !== 'EDEN ZINO' || !bilingualHome.heroSubtitleEn) throw new Error('English home content defaults missing');
+console.log('✓ Hebrew/English schema, English content defaults and Eden Zino branding');
+
 const admin = (await db.query("insert into admins(email,password_hash,display_name,role) values('owner@test.local','x','Owner','OWNER') returning id")).rows[0];
 await db.query(`insert into workshops(public_code,slug,title,starts_at,ends_at,capacity,max_participants_per_order,max_registrations_per_phone,price_agorot,deposit_agorot,status,terms_version,privacy_version,cancellation_policy_version,created_by)
   values('EZTEST','test-workshop','Test Workshop',now()+interval '7 day',now()+interval '7 day 2 hour',2,2,2,10000,3000,'PUBLISHED','DRAFT-1','DRAFT-1','DRAFT-1',$1)`, [admin.id]);
 const reserve = (await db.query(`select * from reserve_registration('EZTEST','Ada','Dancer','ada@example.com','050-1234567','','[{"firstName":"Ada","lastName":"Dancer"}]'::jsonb,null,false,'{}'::jsonb,'{}'::jsonb,'DRAFT-1','DRAFT-1','DRAFT-1','DEPOSIT',null,null,null)`)).rows[0];
 if (reserve.registration_status !== 'SEAT_HELD' || reserve.amount_agorot !== 3000 || reserve.total_amount_agorot !== 10000) throw new Error('reservation/deposit calculation failed');
-console.log('✓ atomic reservation and deposit calculation');
+await db.query("update registrations set preferred_language='en' where id=$1", [reserve.registration_id]);
+const preferredLanguage = (await db.query('select preferred_language from registrations where id=$1', [reserve.registration_id])).rows[0]?.preferred_language;
+if (preferredLanguage !== 'en') throw new Error('registration preferred language persistence failed');
+let invalidLanguageError = '';
+try { await db.query("update registrations set preferred_language='fr' where id=$1", [reserve.registration_id]); } catch (error) { invalidLanguageError = error.message; }
+if (!invalidLanguageError) throw new Error('preferred language constraint failed');
+console.log('✓ atomic reservation, deposit calculation and preferred language persistence');
 
 const deposit = (await db.query("insert into payments(registration_id,provider,status,amount_agorot,checkout_code,purpose) values($1,'mock','CREATED',3000,'deposit-checkout','WORKSHOP_DEPOSIT') returning id", [reserve.registration_id])).rows[0];
 await db.query("select * from confirm_checkout_payment($1,'tx-deposit',3000,'OK','mock','{}'::jsonb)", [deposit.id]);

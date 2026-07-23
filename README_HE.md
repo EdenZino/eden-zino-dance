@@ -1,4 +1,4 @@
-# Eden Zino Dance — פלטפורמת סדנאות גרסה 1.6.0
+# Eden Zino — פלטפורמת סדנאות גרסה 1.7.0
 
 מערכת מלאה לניהול, שיווק ומכירת סדנאות ריקוד: אתר ציבורי mobile-first, ממשק ניהול, קודי סדנה, הרשמה, קיבולת אטומית, PayMe, קופונים, Early Bird, מקדמות, רשימת המתנה, נוכחות, ביטולים, החזרים, העברות, מנויים, כרטיסיות, תוכן, גלריית תמונות וסרטונים, דוחות ו־Audit Log.
 
@@ -18,7 +18,20 @@
 - סימון סביבת ספק שמונע מנתוני Sandbox להיחשב כבדיקות Production.
 - יציאה מ־Sandbox.
 
-קרא את `docs/P0_CLOSURE_REPORT_HE.md` ואת `docs/PRODUCTION_CHECKLIST_HE.md`.
+קרא את `docs/archive/P0_CLOSURE_REPORT_HE.md` ואת `docs/PRODUCTION_CHECKLIST_HE.md`.
+
+
+## חדש בגרסה 1.7.0
+
+- בורר עברית / English עם RTL/LTR ושמירת שפת המשתמש.
+- שדות English לתוכן דינמי בממשק הניהול.
+- דוא״ל מעוצב דו־לשוני לפי שפת ההרשמה.
+- מיתוג ציבורי ו-SEO בשם `Eden Zino` בלבד.
+- favicon ו-Apple Touch Icon.
+- ניקוי Workflows וקבצי קונפיגורציה ישנים.
+
+להוראות שדרוג קיימות: `docs/UPGRADE_1_7_HE.md`.
+לדוח האימות של השדרוג: `docs/VALIDATION_REPORT_1_7_HE.md`.
 
 ## תיקון מובייל ב־1.3.0
 
@@ -28,7 +41,7 @@
 
 - React/Vite בעברית ו־RTL.
 - Cloudflare Worker שמגיש אתר ו־API באותו דומיין.
-- Neon PostgreSQL ושמונה מיגרציות.
+- Neon PostgreSQL ותשע מיגרציות.
 - Cloudflare R2 לתמונות ולסרטונים.
 - PayMe Hosted Payment ו־Callback שרת.
 - Refund orchestration מלא ברמת המערכת.
@@ -53,10 +66,9 @@
 npm ci
 cp .env.example .env
 cp .dev.vars.example .dev.vars
-cp wrangler.toml.example wrangler.toml
 ```
 
-החלף את ערכי הדוגמה בלבד. אין להדביק סודות בקוד או ב־Git.
+`wrangler.toml` כבר כולל את מבנה Development/Production של הפרויקט. עדכן רק מזהים וכתובות שאינם סודות. אין להדביק סודות בקוד או ב־Git.
 
 ```bash
 set -a
@@ -136,9 +148,9 @@ docs            תיעוד הפעלה, אבטחה, PayMe ומשפט
 
 ## בחירת עיצוב
 
-האתר הציבורי תומך בשני עיצובים מתוך **ניהול → הגדרות**: `Classic` ו־`Modern`. בתוך `Classic` ניתן לבחור בין חמש פלטות צבעים מוכנות. השינויים נשמרים במסד ואינם דורשים Deploy נוסף. ראו `docs/DUAL_THEME_AND_MOBILE_MENU_HE.md` ו־`docs/CLASSIC_COLOR_PALETTES_HE.md`.
+האתר הציבורי תומך בשני עיצובים מתוך **ניהול → הגדרות**: `Classic` ו־`Modern`. בתוך `Classic` ניתן לבחור בין חמש פלטות צבעים מוכנות. השינויים נשמרים במסד ואינם דורשים Deploy נוסף. ראו `docs/archive/DUAL_THEME_AND_MOBILE_MENU_HE.md` ו־`docs/archive/CLASSIC_COLOR_PALETTES_HE.md`.
 
 
 ## גלריית תמונות וסרטונים
 
-מתוך **ניהול → גלריה** ניתן להעלות תמונות וסרטוני MP4/WebM, לערוך כותרת ותיאור נגיש, לקבוע סדר, לפרסם או להסתיר ולמחוק לצמיתות. האתר הציבורי כולל דף גלריה, תצוגה מוגדלת וניגון וידאו עם Range Requests. ראו `docs/GALLERY_MANAGEMENT_HE.md`.
+מתוך **ניהול → גלריה** ניתן להעלות תמונות וסרטוני MP4/WebM, לערוך כותרת ותיאור נגיש, לקבוע סדר, לפרסם או להסתיר ולמחוק לצמיתות. האתר הציבורי כולל דף גלריה, תצוגה מוגדלת וניגון וידאו עם Range Requests. ראו `docs/archive/GALLERY_MANAGEMENT_HE.md`.

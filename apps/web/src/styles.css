@@ -1,5 +1,5 @@
 /* ============================================================
-   EDEN ZINO DANCE — design tokens
+   EDEN ZINO — design tokens
    Concept: a rehearsal stage at night — warm spotlight amber and
    rhythm-red against a near-black stage, alternating with a pale
    "rosin dust" studio-daylight paper for reading sections. The
@@ -719,3 +719,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   .gallery-lightbox-nav.previous{right:1rem}.gallery-lightbox-nav.next{left:1rem}
   .gallery-lightbox-content img,.gallery-lightbox-content video{max-height:68vh}
 }
+
+/* Language selector and LTR support */
+.header-actions{display:flex;align-items:center;gap:.7rem}.language-switch{display:inline-flex;align-items:center;gap:.35rem;border:1px solid var(--line);border-radius:999px;padding:.35rem .55rem;background:color-mix(in srgb,var(--paper) 92%,transparent)}.language-switch button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:.72rem;font-weight:800;cursor:pointer;padding:.2rem}.language-switch button.active{color:var(--ink)}.language-switch.compact{margin:.75rem 0 0;width:max-content}.language-switch span{color:var(--muted);font-size:.7rem}
+html[dir="ltr"] .instructor-copy blockquote{border-right:0;border-left:4px solid var(--rhythm)}
+html[dir="ltr"] .hero-title-stack{align-items:flex-start}
+html[dir="ltr"] .main-nav a::after{transform-origin:right}
+html[dir="ltr"] .modal-head{padding-left:0;padding-right:3rem}
+html[dir="ltr"] .modal-close{left:auto;right:1rem}
+@media(max-width:800px){.desktop-nav+.header-actions .language-switch{display:none}.mobile-drawer .language-switch{display:inline-flex}}
