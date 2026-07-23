@@ -7,6 +7,7 @@ import { Brand } from '../components/Layout';
 import { ErrorBox, Loading } from '../components/Loading';
 import { WORKSHOP_LEVELS } from '../lib/workshopLevels';
 import { TurnstileField } from '../components/TurnstileField';
+import { MediaLibraryPicker, type MediaLibraryItem } from '../components/MediaLibraryPicker';
 
 type Tab='dashboard'|'workshops'|'series'|'registrations'|'waitlist'|'coupons'|'products'|'gallery'|'content'|'operations'|'reports'|'settings';
 const readinessLabels:Record<string,string>={
@@ -98,15 +99,18 @@ function ProductsAdmin(){const qc=useQueryClient();const q=useQuery({queryKey:['
 
 function GalleryAdmin(){
   const qc=useQueryClient();
+  const [libraryOpen,setLibraryOpen]=useState(false);
+  const [libraryNotice,setLibraryNotice]=useState('');
   const q=useQuery({queryKey:['admin-gallery'],queryFn:()=>api<any>('/admin/gallery')});
   const integrity=useQuery({queryKey:['admin-media-integrity'],queryFn:()=>api<any>('/admin/media/integrity'),enabled:false,retry:false});
   const upload=useMutation({mutationFn:(form:FormData)=>api('/admin/gallery',{method:'POST',body:form}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-gallery']});qc.invalidateQueries({queryKey:['gallery']})}});
+  const reuse=useMutation({mutationFn:(assetId:string)=>api('/admin/gallery/from-asset',{method:'POST',body:JSON.stringify({assetId})}),onSuccess:()=>{setLibraryNotice('התמונה נוספה לגלריה כטיוטה. השלימי תיאור נגיש ופרסמי אותה כשמוכנה.');qc.invalidateQueries({queryKey:['admin-gallery']});qc.invalidateQueries({queryKey:['admin-media-library']});}});
   const update=useMutation({mutationFn:({id,body}:{id:string;body:any})=>api(`/admin/gallery/${id}`,{method:'PATCH',body:JSON.stringify(body)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-gallery']});qc.invalidateQueries({queryKey:['gallery']})}});
   const remove=useMutation({mutationFn:(id:string)=>api(`/admin/gallery/${id}`,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-gallery']});qc.invalidateQueries({queryKey:['gallery']})}});
   const items=q.data?.items??[];
   return <>
     <AdminPanel title="העלאת תמונה או סרטון">
-      <div className="media-integrity-toolbar"><button type="button" className="button outline small" onClick={()=>integrity.refetch()} disabled={integrity.isFetching}>בדיקת תקינות קבצי R2</button>{integrity.data&&<span role="status" className={integrity.data.missingCount?"warning-box":"success-box"}>נבדקו {integrity.data.checked} קבצים · חסרים {integrity.data.missingCount}</span>}</div>{integrity.data?.missing?.length>0&&<details className="media-missing-list"><summary>קבצים חסרים ב-bucket המחובר</summary><ul>{integrity.data.missing.map((x:any)=><li key={x.id}><code>{x.object_key||"ללא object key"}</code> · {x.file_name}</li>)}</ul></details>}
+      <div className="media-integrity-toolbar"><button type="button" className="button outline small" onClick={()=>integrity.refetch()} disabled={integrity.isFetching}>בדיקת תקינות קבצי R2</button><button type="button" className="button outline small" onClick={()=>{setLibraryNotice('');setLibraryOpen(true)}}><Images aria-hidden="true"/> הוספת תמונה קיימת מהשרת</button>{integrity.data&&<span role="status" className={integrity.data.missingCount?"warning-box":"success-box"}>נבדקו {integrity.data.checked} קבצים · חסרים {integrity.data.missingCount}</span>}</div>{libraryNotice&&<div className="success-box" role="status">{libraryNotice}</div>}{reuse.error&&<ErrorBox error={reuse.error}/>}<MediaLibraryPicker open={libraryOpen} onClose={()=>setLibraryOpen(false)} availableForGallery onSelect={(item:MediaLibraryItem)=>{reuse.mutate(item.id);setLibraryOpen(false)}}/>{integrity.data?.missing?.length>0&&<details className="media-missing-list"><summary>קבצים חסרים ב-bucket המחובר</summary><ul>{integrity.data.missing.map((x:any)=><li key={x.id}><code>{x.object_key||"ללא object key"}</code> · {x.file_name}</li>)}</ul></details>}
       <form className="gallery-upload-form" onSubmit={e=>{e.preventDefault();const formElement=e.currentTarget;const form=new FormData(formElement);form.set('isPublished',form.get('isPublished')?'true':'false');upload.mutate(form,{onSuccess:()=>formElement.reset()})}}>
         <label className="wide">בחירת קובץ<input name="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,video/mp4,video/webm" required/><small>תמונות עד 12MB. סרטוני MP4 או WebM עד 80MB.</small></label>
         <div className="form-grid"><label>כותרת<input name="title" maxLength={160}/></label><label>Title (English)<input name="titleEn" dir="ltr" maxLength={160}/></label><label className="field-xs">סדר תצוגה<input name="displayOrder" type="number" min="0" defaultValue="0"/></label><label className="checkbox-line"><input name="isPublished" type="checkbox" defaultChecked/> פרסום מיידי</label></div>
@@ -184,7 +188,7 @@ function Status({s}:{s:string}){const value=String(s||'');return <span className
 
 
 function ImageUploadInput({name,label,defaultValue=''}:{name:string;label:string;defaultValue?:string}){
-  const [value,setValue]=useState(defaultValue);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const [value,setValue]=useState(defaultValue);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [libraryOpen,setLibraryOpen]=useState(false);
   const inputId=`${name}-file-picker`;
   async function upload(file:File){
     setBusy(true);setError('');
@@ -196,5 +200,5 @@ function ImageUploadInput({name,label,defaultValue=''}:{name:string;label:string
       const result=await api<{asset:{object_key:string;public_url:string}}>('/admin/uploads',{method:'POST',body:form});setValue(result.asset.public_url);
     }catch(e){setError(e instanceof Error?e.message:'UPLOAD_FAILED')}finally{setBusy(false)}
   }
-  return <div className="wide image-upload-field"><label htmlFor={`${name}-url`}>{label}</label><input id={`${name}-url`} name={name} value={value} onChange={e=>setValue(e.target.value)} placeholder="כתובת תמונה או העלאה"/><div className="upload-control"><input id={inputId} className="visually-hidden-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={e=>{const f=e.currentTarget.files?.[0];if(f)upload(f);e.currentTarget.value='';}}/><label className="button outline small file-picker-button" htmlFor={inputId}>{busy?'מעלה...':'בחירת תמונה'}</label><small>JPG / PNG / WEBP / GIF / AVIF עד 12MB</small></div>{value&&<div className="image-upload-preview"><img src={value} alt="תצוגה מקדימה של התמונה שנבחרה"/><button type="button" className="text-button" onClick={()=>setValue('')}>הסרת התמונה</button></div>}{error&&<small className="field-error">{error}</small>}</div>
+  return <div className="wide image-upload-field"><label htmlFor={`${name}-url`}>{label}</label><input id={`${name}-url`} name={name} value={value} onChange={e=>setValue(e.target.value)} placeholder="כתובת יחסית, בחירה מהספרייה או העלאה חדשה"/><div className="upload-control image-source-actions"><input id={inputId} className="visually-hidden-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={e=>{const f=e.currentTarget.files?.[0];if(f)upload(f);e.currentTarget.value='';}}/><label className="button outline small file-picker-button" htmlFor={inputId}>{busy?'מעלה...':'העלאת תמונה חדשה'}</label><button type="button" className="button outline small" onClick={()=>setLibraryOpen(true)}><Images aria-hidden="true"/> בחירה מהגלריה / ספריית המדיה</button><small>JPG / PNG / WEBP / GIF / AVIF עד 12MB</small></div>{value&&<div className="image-upload-preview"><img src={value} alt="תצוגה מקדימה של התמונה שנבחרה"/><div><code>{value}</code><button type="button" className="text-button" onClick={()=>setValue('')}>הסרת התמונה</button></div></div>}{error&&<small className="field-error" role="alert">{error}</small>}<MediaLibraryPicker open={libraryOpen} onClose={()=>setLibraryOpen(false)} onSelect={item=>setValue(item.public_url)} currentValue={value}/></div>
 }

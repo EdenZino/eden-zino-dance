@@ -497,6 +497,43 @@ admin.delete('/gallery/:id', requireRole('OWNER','ADMIN'), async (c) => {
 });
 
 
+admin.get('/media/library', requireRole('OWNER','ADMIN'), async (c) => {
+  const search = String(c.req.query('q') ?? '').trim().slice(0, 120);
+  const availableForGallery = c.req.query('availableForGallery') === 'true';
+  const pattern = search ? `%${search}%` : null;
+  const rows = await db(c.env)`select a.id,a.object_key,a.public_url,a.file_name,a.content_type,a.size_bytes,a.created_at,
+      g.id gallery_item_id,g.title,g.title_en,g.alt_text,g.alt_text_en,g.is_published
+    from uploaded_assets a
+    left join gallery_items g on g.asset_id=a.id
+    where a.content_type like 'image/%'
+      and (${availableForGallery} = false or g.id is null)
+      and (${pattern}::text is null or concat_ws(' ',a.file_name,a.object_key,coalesce(g.title,''),coalesce(g.title_en,''),coalesce(g.alt_text,''),coalesce(g.alt_text_en,'')) ilike ${pattern})
+    order by a.created_at desc
+    limit 120`;
+  return c.json({
+    items: rows.map((row: any) => ({ ...withRelativeAssetUrl(row), source: row.gallery_item_id ? 'GALLERY' : 'MEDIA_LIBRARY' })),
+    query: search,
+  });
+});
+
+admin.post('/gallery/from-asset', requireRole('OWNER','ADMIN'), async (c) => {
+  const input = z.object({ assetId: z.string().uuid() }).parse(await c.req.json());
+  const sql = db(c.env);
+  const assets = await sql`select id,object_key,file_name,content_type,size_bytes from uploaded_assets where id=${input.assetId}::uuid and content_type like 'image/%' limit 1`;
+  if (!assets.length) return c.json({ error: 'IMAGE_ASSET_NOT_FOUND' }, 404);
+  const existing = await sql`select id from gallery_items where asset_id=${input.assetId}::uuid limit 1`;
+  if (existing.length) return c.json({ error: 'IMAGE_ALREADY_IN_GALLERY' }, 409);
+  const asset = assets[0] as any;
+  const actor = c.get('admin');
+  const title = String(asset.file_name || '').replace(/\.[^.]+$/, '').slice(0, 160);
+  const rows = await sql`insert into gallery_items(asset_id,media_type,title,caption,alt_text,display_order,is_published,created_by)
+    values(${input.assetId}::uuid,'IMAGE',${title},'','',0,false,${actor.adminId}::uuid) returning *`;
+  const item = { ...(rows[0] as any), object_key: asset.object_key, public_url: mediaUrlFromKey(String(asset.object_key)), file_name: asset.file_name, content_type: asset.content_type, size_bytes: asset.size_bytes };
+  await sql`insert into audit_logs(admin_id,action,entity_type,entity_id,new_value,ip_address)
+    values(${actor.adminId}::uuid,'CREATE_FROM_EXISTING_ASSET','GALLERY_ITEM',${String((rows[0] as any).id)},${JSON.stringify(item)}::jsonb,${c.req.header('CF-Connecting-IP') ?? null})`;
+  return c.json({ item }, 201);
+});
+
 admin.get('/media/integrity', requireRole('OWNER','ADMIN'), async (c) => {
   const rows = await db(c.env)`select id,object_key,public_url,file_name,content_type,size_bytes,created_at from uploaded_assets order by created_at desc limit 1000`;
   const missing: any[] = [];
